@@ -31,4 +31,12 @@ AGENTS.md
 CLAUDE.md
 .gemini/
 .claude/
+.mcp.json
+boost.json
+database-inventory.md
+schema-analysis.md
+relationship-analysis.md
+database-schema.json
+data-profiling.csv
+erd.mmd
 
