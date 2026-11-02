@@ -47,7 +47,7 @@ const attendances = ref([
         method: 'Biometrik Face-ID',
         status: 'Hadir',
         statusSeverity: 'success',
-        avatarBg: '#696cff',
+        avatarBg: '#005BAC',
     },
     {
         id: 'EMP-0219',
@@ -141,12 +141,12 @@ const weeklyTrendData = ref({
         {
             label: 'Tepat Waktu (%)',
             data: [94, 96, 92, 95, 91, 98],
-            borderColor: '#696cff',
-            backgroundColor: 'rgba(105, 108, 255, 0.12)',
+            borderColor: '#005BAC',
+            backgroundColor: 'rgba(0, 91, 172, 0.12)',
             fill: true,
             tension: 0.35,
             pointRadius: 4,
-            pointBackgroundColor: '#696cff',
+            pointBackgroundColor: '#005BAC',
         },
     ],
 });
@@ -183,7 +183,7 @@ const chartOptions = ref({
             class="relative bg-white rounded-xl border border-slate-200/70 p-6 shadow-[0_2px_6px_0_rgba(67,89,113,0.06)] overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
         >
             <div class="space-y-1.5 max-w-xl">
-                <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#696cff]/10 text-[#696cff] text-xs font-semibold">
+                <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#005BAC]/10 text-[#005BAC] text-xs font-semibold">
                     <i class="pi pi-calendar text-[11px]" />
                     <span>Jumat, 30 Oktober 2026 • Shift Pagi</span>
                 </div>
@@ -209,7 +209,7 @@ const chartOptions = ref({
                     label="Input Izin Manual"
                     icon="pi pi-plus"
                     size="small"
-                    class="!rounded-lg !text-xs !font-semibold !bg-[#696cff] !border-[#696cff] hover:!bg-[#5f61e6] shadow-[0_2px_6px_rgba(105,108,255,0.35)]"
+                    class="!rounded-lg !text-xs !font-semibold !bg-[#005BAC] !border-[#005BAC] hover:!bg-[#004b8e] shadow-[0_2px_6px_rgba(0,91,172,0.35)]"
                 />
             </div>
         </div>
@@ -280,7 +280,7 @@ const chartOptions = ref({
 
                 <div class="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
                     <span>Shift Normal: 08:00 - 17:00</span>
-                    <span class="text-[#696cff] font-semibold cursor-pointer hover:underline">Detail KPI</span>
+                    <span class="text-[#005BAC] hover:text-[#004b8e] font-semibold cursor-pointer hover:underline">Detail KPI</span>
                 </div>
             </div>
 

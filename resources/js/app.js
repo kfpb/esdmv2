@@ -9,7 +9,7 @@ import PrimeVue from 'primevue/config';
 import Tooltip from 'primevue/tooltip';
 import ToastService from 'primevue/toastservice';
 import ConfirmationService from 'primevue/confirmationservice';
-import Aura from '@primeuix/themes/aura';
+import Aura from '@primevue/themes/aura';
 
 import 'primeicons/primeicons.css';
 
@@ -44,6 +44,6 @@ createInertiaApp({
             .mount(el);
     },
     progress: {
-        color: '#6366f1',
+        color: '#005BAC',
     },
 });

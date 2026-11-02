@@ -28,9 +28,12 @@ Thumbs.db
 
 # AI & Agent configs
 AGENTS.md
+GEMINI.md
 CLAUDE.md
 .gemini/
 .claude/
+.agents/
+.docs/
 .mcp.json
 boost.json
 database-inventory.md

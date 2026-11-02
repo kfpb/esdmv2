@@ -243,15 +243,15 @@ const countries = ref([
                 <template #content>
                     <div class="space-y-4">
                         <div class="flex items-center gap-3">
-                            <Avatar label="A" size="xlarge" shape="circle" style="background-color: #6366f1; color: #fff" />
+                            <Avatar label="A" size="xlarge" shape="circle" style="background-color: #005BAC; color: #fff" />
                             <Avatar label="B" size="large" shape="circle" style="background-color: #22c55e; color: #fff" />
-                            <Avatar label="C" shape="circle" style="background-color: #f59e0b; color: #fff" />
+                            <Avatar label="C" shape="circle" style="background-color: #F37021; color: #fff" />
                             <Avatar icon="pi pi-user" size="xlarge" shape="circle" />
                         </div>
                         <AvatarGroup>
-                            <Avatar label="U1" shape="circle" style="background-color: #6366f1; color: #fff" />
+                            <Avatar label="U1" shape="circle" style="background-color: #005BAC; color: #fff" />
                             <Avatar label="U2" shape="circle" style="background-color: #22c55e; color: #fff" />
-                            <Avatar label="U3" shape="circle" style="background-color: #f59e0b; color: #fff" />
+                            <Avatar label="U3" shape="circle" style="background-color: #F37021; color: #fff" />
                             <Avatar label="U4" shape="circle" style="background-color: #ef4444; color: #fff" />
                             <Avatar label="+3" shape="circle" />
                         </AvatarGroup>

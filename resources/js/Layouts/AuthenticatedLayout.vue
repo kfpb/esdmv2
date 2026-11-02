@@ -36,18 +36,18 @@ const currentUser = computed(() => {
                 .toUpperCase(),
         };
     }
-    // Fallback mockup user for UI design preview
+    // Fallback aman jika pengguna belum terautentikasi
     return {
-        id: 1,
-        name: 'Ardi SDM',
-        username: 'sdm_ardi',
-        employee_nip: 'ADMIN-ARDI',
-        role: 'admin',
-        has_admin_access: true,
-        displayName: 'Ardiansyah, S.Psi',
-        positionName: 'Supervisor HR & Organisasi',
-        divisionName: 'Divisi Sumber Daya Manusia',
-        avatarInitials: 'AS',
+        id: null,
+        name: '',
+        username: '',
+        employee_nip: '',
+        role: 'guest',
+        has_admin_access: false,
+        displayName: 'Pengguna',
+        positionName: '',
+        divisionName: '',
+        avatarInitials: 'KF',
     };
 });
 
@@ -164,6 +164,7 @@ const userMenuItems = computed(() => {
 
 // Notifications Popover State
 const showNotifications = ref(false);
+const notificationWrapper = ref(null);
 const notifications = ref([
     {
         id: 1,
@@ -192,8 +193,8 @@ const notifications = ref([
         time: '2 jam yang lalu',
         type: 'izin',
         badge: 'Dinas Luar',
-        badgeClass: 'bg-emerald-100 text-emerald-700',
-        icon: 'pi pi-external-link text-emerald-600 bg-emerald-50',
+        badgeClass: 'bg-orange-100 text-[#F37021]',
+        icon: 'pi pi-external-link text-[#F37021] bg-orange-50',
     },
 ]);
 
@@ -230,12 +231,20 @@ const handleKeydown = (e) => {
     }
 };
 
+const handleClickOutside = (e) => {
+    if (showNotifications.value && notificationWrapper.value && !notificationWrapper.value.contains(e.target)) {
+        showNotifications.value = false;
+    }
+};
+
 onMounted(() => {
     window.addEventListener('keydown', handleKeydown);
+    document.addEventListener('click', handleClickOutside);
 });
 
 onUnmounted(() => {
     window.removeEventListener('keydown', handleKeydown);
+    document.removeEventListener('click', handleClickOutside);
 });
 
 // Helper URL match
@@ -275,7 +284,7 @@ const isCurrentUrl = (path) => {
                     <div class="flex flex-col">
                         <span class="font-bold text-slate-800 text-[15px] leading-tight tracking-tight flex items-center gap-1.5">
                             E-SDM KFPB
-                            <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-[#696cff] border border-indigo-100">v2</span>
+                            <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-orange-50 text-[#F37021] border border-orange-200/80">v2</span>
                         </span>
                         <span class="text-[10px] font-medium text-slate-400 tracking-tight">
                             Kimia Farma Plant Banjaran
@@ -301,7 +310,7 @@ const isCurrentUrl = (path) => {
                         :class="[
                             'flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1.5 transition-all text-[11px] font-semibold cursor-pointer',
                             portalMode === 'admin'
-                                ? 'bg-white text-indigo-700 shadow-xs border border-indigo-100'
+                                ? 'bg-white text-[#005BAC] shadow-xs border border-blue-100'
                                 : 'text-slate-500 hover:text-slate-800',
                         ]"
                         @click="setPortalMode('admin')"
@@ -314,7 +323,7 @@ const isCurrentUrl = (path) => {
                         :class="[
                             'flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1.5 transition-all text-[11px] font-semibold cursor-pointer',
                             portalMode === 'employee'
-                                ? 'bg-white text-emerald-700 shadow-xs border border-emerald-100'
+                                ? 'bg-white text-[#F37021] shadow-xs border border-orange-200'
                                 : 'text-slate-500 hover:text-slate-800',
                         ]"
                         @click="setPortalMode('employee')"
@@ -327,9 +336,9 @@ const isCurrentUrl = (path) => {
                 <!-- Regular Employee Portal Indicator -->
                 <div
                     v-else
-                    class="px-3 py-1.5 rounded-lg bg-emerald-50/80 border border-emerald-200/60 text-emerald-800 text-[11px] font-semibold flex items-center gap-2"
+                    class="px-3 py-1.5 rounded-lg bg-orange-50/80 border border-orange-200/60 text-[#F37021] text-[11px] font-semibold flex items-center gap-2"
                 >
-                    <span class="size-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span class="size-2 rounded-full bg-[#F37021] animate-pulse" />
                     <span>Portal Layanan Mandiri (ESS)</span>
                 </div>
             </div>
@@ -353,7 +362,7 @@ const isCurrentUrl = (path) => {
                                     :class="[
                                         'flex items-center gap-3 px-3.5 py-2.5 rounded-lg transition-all duration-150 font-medium cursor-pointer',
                                         isCurrentUrl('/')
-                                            ? 'bg-[#696cff] text-white shadow-[0_2px_8px_rgba(105,108,255,0.4)]'
+                                            ? 'bg-[#005BAC] text-white shadow-[0_2px_8px_rgba(0,91,172,0.35)]'
                                             : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
                                     ]"
                                 >
@@ -394,7 +403,7 @@ const isCurrentUrl = (path) => {
                                         :class="[
                                             'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
                                             isCurrentUrl('/datatable')
-                                                ? 'bg-[#696cff]/10 text-[#696cff] font-semibold'
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
                                                 : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
                                         ]"
                                     >
@@ -408,7 +417,7 @@ const isCurrentUrl = (path) => {
                                         :class="[
                                             'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
                                             isCurrentUrl('/components')
-                                                ? 'bg-[#696cff]/10 text-[#696cff] font-semibold'
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
                                                 : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
                                         ]"
                                     >
@@ -466,7 +475,7 @@ const isCurrentUrl = (path) => {
                                         :class="[
                                             'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
                                             isCurrentUrl('/charts')
-                                                ? 'bg-[#696cff]/10 text-[#696cff] font-semibold'
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
                                                 : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
                                         ]"
                                     >
@@ -480,7 +489,7 @@ const isCurrentUrl = (path) => {
                                         :class="[
                                             'flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors',
                                             isCurrentUrl('/forms')
-                                                ? 'bg-[#696cff]/10 text-[#696cff] font-semibold'
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
                                                 : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
                                         ]"
                                     >
@@ -639,16 +648,16 @@ const isCurrentUrl = (path) => {
                         <ul class="space-y-1">
                             <li>
                                 <Link
-                                    href="/"
+                                    href="/absensi"
                                     :class="[
                                         'flex items-center gap-3 px-3.5 py-2.5 rounded-lg transition-all duration-150 font-medium cursor-pointer',
-                                        isCurrentUrl('/')
-                                            ? 'bg-emerald-600 text-white shadow-[0_2px_8px_rgba(16,185,129,0.4)]'
+                                        isCurrentUrl('/absensi')
+                                            ? 'bg-[#005BAC] text-white shadow-[0_2px_8px_rgba(0,91,172,0.35)]'
                                             : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
                                     ]"
                                 >
-                                    <i :class="['pi pi-home text-base shrink-0', isCurrentUrl('/') ? 'text-white' : 'text-slate-400']" />
-                                    <span>Dashboard Pegawai</span>
+                                    <i :class="['pi pi-calendar-check text-base shrink-0', isCurrentUrl('/absensi') ? 'text-white' : 'text-slate-400']" />
+                                    <span>Presensi Harian (Clock-In)</span>
                                 </Link>
                             </li>
                         </ul>
@@ -678,15 +687,6 @@ const isCurrentUrl = (path) => {
                             </button>
 
                             <ul v-show="openGroups.layananMandiri" class="pl-8 pr-1 space-y-1 pt-0.5">
-                                <li>
-                                    <Link
-                                        href="/components"
-                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
-                                    >
-                                        <span class="size-1.5 rounded-full bg-emerald-500 shrink-0" />
-                                        <span>Presensi Harian (Clock-In)</span>
-                                    </Link>
-                                </li>
                                 <li>
                                     <Link
                                         href="/charts"
@@ -811,8 +811,8 @@ const isCurrentUrl = (path) => {
                         :class="[
                             '!font-bold text-xs shrink-0 size-9',
                             portalMode === 'admin'
-                                ? '!bg-[#696cff]/15 !text-[#696cff]'
-                                : '!bg-emerald-500/15 !text-emerald-700',
+                                ? '!bg-[#005BAC]/15 !text-[#005BAC]'
+                                : '!bg-orange-500/15 !text-[#F37021]',
                         ]"
                     />
                     <div class="min-w-0 flex-1">
@@ -824,10 +824,15 @@ const isCurrentUrl = (path) => {
                         </p>
                     </div>
                     <span
-                        class="size-2 rounded-full bg-emerald-500 shrink-0 ring-2 ring-emerald-100"
+                        class="size-2 rounded-full bg-[#005BAC] shrink-0 ring-2 ring-blue-100"
                         title="Status: Online Aktif"
                     />
                 </div>
+            </div>
+
+            <!-- Sidebar Drawer Copyright -->
+            <div class="px-4 py-2.5 border-t border-slate-100 text-[10px] text-slate-400 text-center select-none bg-slate-50/50 shrink-0">
+                <span>© 2026 E-SDM KFPB • Plant Banjaran</span>
             </div>
         </aside>
 
@@ -874,8 +879,8 @@ const isCurrentUrl = (path) => {
                                 :class="[
                                     'px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition-all cursor-pointer',
                                     portalMode === 'admin'
-                                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
-                                        : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100',
+                                        ? 'bg-blue-50 text-[#005BAC] border-blue-200 hover:bg-blue-100'
+                                        : 'bg-orange-50 text-[#F37021] border-orange-200 hover:bg-orange-100',
                                 ]"
                                 @click="setPortalMode(portalMode === 'admin' ? 'employee' : 'admin')"
                                 :title="portalMode === 'admin' ? 'Klik untuk berpindah ke tampilan Layanan Pegawai' : 'Klik untuk berpindah ke tampilan Admin HRD'"
@@ -898,7 +903,7 @@ const isCurrentUrl = (path) => {
                         </button>
 
                         <!-- Notification Button & Dropdown Popover -->
-                        <div class="relative">
+                        <div ref="notificationWrapper" class="relative">
                             <button
                                 type="button"
                                 class="relative p-2 rounded-xl text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer"
@@ -914,7 +919,7 @@ const isCurrentUrl = (path) => {
                             <!-- Notification Dropdown Popover -->
                             <div
                                 v-if="showNotifications"
-                                class="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-xl border border-slate-200/80 z-50 p-4 transition-all"
+                                class="absolute -right-14 sm:right-0 mt-2 w-[calc(100vw-3rem)] sm:w-96 max-w-sm sm:max-w-none bg-white rounded-2xl shadow-xl border border-slate-200/80 z-50 p-4 transition-all"
                             >
                                 <div class="flex items-center justify-between pb-3 border-b border-slate-100">
                                     <div class="flex items-center gap-2">
@@ -923,14 +928,14 @@ const isCurrentUrl = (path) => {
                                     </div>
                                     <button
                                         type="button"
-                                        class="text-[11px] text-[#696cff] hover:underline font-medium cursor-pointer"
+                                        class="text-[11px] text-[#005BAC] hover:text-[#004b8e] hover:underline font-medium cursor-pointer"
                                         @click="showNotifications = false"
                                     >
                                         Tandai dibaca
                                     </button>
                                 </div>
 
-                                <div class="divide-y divide-slate-100 max-h-80 overflow-y-auto custom-scrollbar my-1">
+                                <div class="divide-y divide-slate-100 max-h-[60vh] sm:max-h-80 overflow-y-auto custom-scrollbar my-1">
                                     <div
                                         v-for="item in notifications"
                                         :key="item.id"
@@ -961,7 +966,7 @@ const isCurrentUrl = (path) => {
                                 <div class="pt-2 border-t border-slate-100 text-center">
                                     <Link
                                         href="/forms"
-                                        class="text-xs font-semibold text-[#696cff] hover:text-[#5b5ee6] inline-flex items-center gap-1"
+                                        class="text-xs font-semibold text-[#005BAC] hover:text-[#004b8e] inline-flex items-center gap-1"
                                         @click="showNotifications = false"
                                     >
                                         <span>Buka Pusat Verifikasi</span>
@@ -983,10 +988,7 @@ const isCurrentUrl = (path) => {
                                 <Avatar
                                     :label="currentUser.avatarInitials"
                                     shape="circle"
-                                    :class="[
-                                        '!text-white font-bold text-xs size-8 shadow-xs',
-                                        portalMode === 'admin' ? '!bg-[#696cff]' : '!bg-emerald-600',
-                                    ]"
+                                    class="!text-white font-bold text-xs size-8 shadow-xs !bg-[#005BAC]"
                                 />
                                 <div class="hidden sm:block text-left">
                                     <div class="text-xs font-bold text-slate-800 leading-tight">
@@ -1017,15 +1019,15 @@ const isCurrentUrl = (path) => {
             </main>
 
             <!-- ================= MODERN FOOTER ================= -->
-            <footer class="px-6 py-4 border-t border-slate-200/60 text-xs text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-2 mt-auto">
-                <div class="flex items-center gap-1.5 flex-wrap">
+            <footer class="px-4 sm:px-6 py-4 border-t border-slate-200/60 text-xs text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-2.5 mt-auto bg-white/40 shrink-0 text-center sm:text-left">
+                <div class="flex items-center justify-center sm:justify-start gap-1.5 flex-wrap">
                     <span>© 2026</span>
                     <span class="font-semibold text-slate-700">E-SDM KFPB v2.0</span>
                     <span class="text-slate-300">•</span>
                     <span>PT Kimia Farma Plant Banjaran</span>
                 </div>
-                <div class="flex gap-4">
-                    <span class="text-slate-400">Database: MariaDB 10.4 / MySQL</span>
+                <div class="flex items-center justify-center gap-2 text-[11px] text-slate-400 flex-wrap">
+                    <span>Database: MariaDB / MySQL</span>
                     <span class="text-slate-300">•</span>
                     <span class="text-slate-500 font-medium">Standard English Schema</span>
                 </div>
@@ -1063,7 +1065,7 @@ const isCurrentUrl = (path) => {
                             @click="searchModalOpen = false"
                         >
                             <div class="flex items-center gap-3">
-                                <div class="size-8 rounded-lg bg-indigo-50 text-[#696cff] flex items-center justify-center">
+                                <div class="size-8 rounded-lg bg-blue-50 text-[#005BAC] flex items-center justify-center">
                                     <i :class="[item.icon, 'text-xs']" />
                                 </div>
                                 <div>

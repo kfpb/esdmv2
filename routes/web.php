@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\AttendanceController;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -12,25 +14,38 @@ Route::middleware('guest')->group(function () {
 
 Route::post('/logout', [LoginController::class, 'destroy'])->name('logout');
 
-// Application Protected / Demo Pages
-Route::get('/', function () {
-    return Inertia::render('Home', [
-        'appName' => config('app.name'),
-    ]);
-})->name('home');
+// Application Protected Pages
+Route::middleware('auth')->group(function () {
+    Route::get('/', function () {
+        if (! Auth::user()->hasAdminAccess()) {
+            return redirect()->route('absensi.dashboard');
+        }
 
-Route::get('/components', function () {
-    return Inertia::render('Components');
-})->name('components');
+        return Inertia::render('Home', [
+            'appName' => config('app.name'),
+        ]);
+    })->name('home');
 
-Route::get('/datatable', function () {
-    return Inertia::render('Datatable');
-})->name('datatable');
+    Route::get('/components', function () {
+        return Inertia::render('Components');
+    })->name('components');
 
-Route::get('/forms', function () {
-    return Inertia::render('Forms');
-})->name('forms');
+    Route::get('/datatable', function () {
+        return Inertia::render('Datatable');
+    })->name('datatable');
 
-Route::get('/charts', function () {
-    return Inertia::render('Charts');
-})->name('charts');
+    Route::get('/forms', function () {
+        return Inertia::render('Forms');
+    })->name('forms');
+
+    Route::get('/charts', function () {
+        return Inertia::render('Charts');
+    })->name('charts');
+
+    // ===== Portal Pegawai — Presensi Mandiri =====
+    Route::prefix('absensi')->name('absensi.')->group(function () {
+        Route::get('/', [AttendanceController::class, 'employeeDashboard'])->name('dashboard');
+        Route::post('/masuk',  [AttendanceController::class, 'checkIn'])->name('masuk');
+        Route::post('/pulang', [AttendanceController::class, 'checkOut'])->name('pulang');
+    });
+});

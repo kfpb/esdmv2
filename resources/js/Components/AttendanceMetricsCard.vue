@@ -49,10 +49,10 @@ const variantStyles = computed(() => {
             };
         case 'warning':
             return {
-                iconBg: 'bg-amber-50 text-amber-600 ring-1 ring-amber-500/15',
-                badgeBg: 'bg-amber-50 text-amber-700 border border-amber-200/60',
-                badgeIcon: 'pi pi-exclamation-circle text-amber-600',
-                accentLine: 'bg-amber-500',
+                iconBg: 'bg-orange-50 text-[#F37021] ring-1 ring-[#F37021]/15',
+                badgeBg: 'bg-orange-50 text-[#F37021] border border-orange-200/60',
+                badgeIcon: 'pi pi-exclamation-circle text-[#F37021]',
+                accentLine: 'bg-[#F37021]',
             };
         case 'info':
             return {
@@ -71,10 +71,10 @@ const variantStyles = computed(() => {
         case 'primary':
         default:
             return {
-                iconBg: 'bg-[#696cff]/10 text-[#696cff] ring-1 ring-[#696cff]/20',
-                badgeBg: 'bg-[#696cff]/10 text-[#696cff] border border-[#696cff]/20',
-                badgeIcon: 'pi pi-check text-[#696cff]',
-                accentLine: 'bg-[#696cff]',
+                iconBg: 'bg-[#005BAC]/10 text-[#005BAC] ring-1 ring-[#005BAC]/20',
+                badgeBg: 'bg-[#005BAC]/10 text-[#005BAC] border border-[#005BAC]/20',
+                badgeIcon: 'pi pi-check text-[#005BAC]',
+                accentLine: 'bg-[#005BAC]',
             };
     }
 });
