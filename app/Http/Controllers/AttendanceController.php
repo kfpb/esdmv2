@@ -17,7 +17,7 @@ use Inertia\Response;
 class AttendanceController extends Controller
 {
     /**
-     * Dashboard presensi mandiri pegawai — menampilkan status harian,
+     * Dashboard presensi mandiri pegawai - menampilkan status harian,
      * formulir absen masuk / pulang, sinkronisasi face-id, kartu ulang tahun,
      * daftar keterlambatan hari ini, dan peta geofence poligon KFPB.
      */

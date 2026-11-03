@@ -735,12 +735,16 @@ const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currenc
                 <p class="text-xs sm:text-sm text-slate-500">
                     Pastikan lokasi presensi Anda sudah sesuai sebelum melakukan absen.
                 </p>
-                <div class="flex flex-wrap items-center gap-2 pt-1 text-xs sm:text-sm text-slate-500">
-                    <span class="text-slate-600 font-sans font-medium">{{ employeeNip }}</span>
-                    <span class="text-slate-300">•</span>
-                    <span class="text-slate-600 font-sans font-medium">{{ formattedPosition }}</span>
-                    <span class="text-slate-300">•</span>
-                    <span class="text-slate-600 font-sans font-medium">{{ formattedDivision }}</span>
+                <div class="flex flex-wrap items-center gap-1.5 sm:gap-2 pt-1">
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-mono text-xs font-semibold border border-slate-200/70">
+                        {{ employeeNip }}
+                    </span>
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-medium border border-slate-200/70">
+                        {{ formattedPosition }}
+                    </span>
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-md bg-blue-50 text-[#005BAC] text-xs font-medium border border-blue-200/60">
+                        {{ formattedDivision }}
+                    </span>
                 </div>
             </div>
 
@@ -972,7 +976,7 @@ const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currenc
                                     </span>
                                     <span v-else-if="gpsReady && !insideZone && !isLocating" class="text-[11px] text-rose-600 font-bold flex items-center gap-1">
                                         <i class="pi pi-exclamation-circle text-[10px]" />
-                                        <span>Di Luar Area Sah</span>
+                                        <span>Di Luar Area KFPB</span>
                                     </span>
                                     <Button
                                         icon="pi pi-crosshairs"
@@ -994,7 +998,7 @@ const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currenc
                             <div class="flex items-center justify-between text-[11px] text-slate-500 pt-0.5 flex-wrap gap-2">
                                 <div class="flex items-center gap-1.5">
                                     <span class="size-2 rounded-full bg-[#005BAC]" />
-                                    <span>Area Biru = 6 Gedung Sah KFPB</span>
+                                    <span>Area Biru = 6 Gedung KFPB</span>
                                 </div>
                                 <div v-if="gpsReady && gpsLat" class="font-mono text-slate-600">
                                     📍 {{ gpsLat?.toFixed(6) }}, {{ gpsLon?.toFixed(6) }}
@@ -1552,7 +1556,7 @@ const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currenc
                     <div class="flex items-center justify-between border-b border-slate-100 pb-3">
                         <div class="flex items-center gap-2">
                             <i class="pi pi-shield text-[#005BAC] text-base" />
-                            <h2 class="font-bold text-slate-800 text-sm tracking-tight">Area Presensi Sah</h2>
+                            <h2 class="font-bold text-slate-800 text-sm tracking-tight">Area Presensi KFPB</h2>
                         </div>
                         <Tag
                             :value="insideZone ? 'Lokasi Sah' : 'Di Luar Area'"
@@ -1573,7 +1577,7 @@ const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currenc
                         <i :class="['text-xl shrink-0', insideZone ? 'pi pi-check-circle text-[#005BAC]' : 'pi pi-exclamation-triangle text-rose-600']" />
                         <div class="min-w-0 text-xs">
                             <p class="font-bold leading-tight">
-                                {{ insideZone ? (currentZoneName || 'Di Dalam Area Sah KFPB') : 'Posisi Anda Di Luar Area Pabrik' }}
+                                {{ insideZone ? (currentZoneName || 'Di Dalam Area KFPB') : 'Posisi Anda Di Luar Area Pabrik' }}
                             </p>
                             <p class="text-[11px] opacity-80 mt-0.5 leading-relaxed">
                                 {{ insideZone ? 'Presensi sah dan dapat disubmit sesuai koordinat GPS terverifikasi.' : 'Pastikan Anda berada di salah satu zona gedung resmi Plant Banjaran.' }}

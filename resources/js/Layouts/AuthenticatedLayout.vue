@@ -848,7 +848,7 @@ const isCurrentUrl = (path) => {
                     <div class="flex items-center gap-3 min-w-0">
                         <button
                             type="button"
-                            class="lg:hidden p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 cursor-pointer"
+                            class="lg:hidden p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 cursor-pointer shrink-0"
                             @click="toggleMobileSidebar"
                         >
                             <i class="pi pi-bars text-lg" />
@@ -856,11 +856,11 @@ const isCurrentUrl = (path) => {
 
                         <div class="min-w-0">
                             <div class="flex items-center gap-1.5 text-xs text-slate-400">
-                                <Link href="/" class="hover:text-slate-600 transition-colors flex items-center gap-1">
-                                    <i class="pi pi-home text-[11px]" />
+                                <Link href="/" class="hover:text-slate-600 transition-colors flex items-center gap-1 shrink-0 whitespace-nowrap">
+                                    <i class="pi pi-home text-[11px] shrink-0" />
                                     <span>E-SDM</span>
                                 </Link>
-                                <i class="pi pi-angle-right text-[10px]" />
+                                <i class="pi pi-angle-right text-[10px] shrink-0" />
                                 <span class="text-slate-600 font-medium truncate">{{ title }}</span>
                             </div>
                             <h1 class="text-sm font-bold text-slate-800 tracking-tight truncate hidden sm:block">
