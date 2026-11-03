@@ -72,7 +72,7 @@ php artisan serve
 
 ---
 
-## 🧭 Halaman Demo yang Tersedia
+## 🧭 Halaman Demo Template
 
 1. **Dashboard (`/`)**: Kartu metrik, grafik statistik penjualan, dan ringkasan tabel order.
 2. **Components (`/components`)**: Variasi button, tag, badge, toggle switch, slider, rating, dan message alert.
