@@ -35,4 +35,9 @@ class Attendance extends Model
     {
         return $this->belongsTo(WorkShift::class, 'work_shift_id');
     }
+
+    public function permissionType(): BelongsTo
+    {
+        return $this->belongsTo(PermissionType::class, 'permission_type_id');
+    }
 }

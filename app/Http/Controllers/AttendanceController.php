@@ -71,6 +71,21 @@ class AttendanceController extends Controller
             ->select('leave_types.name as leave_name', 'leave_requests.reason')
             ->first();
 
+        if (! $activeLeave) {
+            $activePermission = DB::table('permission_requests')
+                ->leftJoin('permission_types', 'permission_requests.permission_type_id', '=', 'permission_types.id')
+                ->where('permission_requests.employee_nip', $nip)
+                ->where('permission_requests.start_date', '<=', $today)
+                ->where('permission_requests.end_date', '>=', $today)
+                ->where('permission_requests.approval_status', 1)
+                ->select('permission_types.name as leave_name', 'permission_requests.reason')
+                ->first();
+
+            if ($activePermission) {
+                $activeLeave = $activePermission;
+            }
+        }
+
         // 5. Cek Ulang Tahun Pegawai Hari Ini
         $isBirthday = false;
         if ($employee && $employee->birth_date) {

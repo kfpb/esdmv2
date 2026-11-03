@@ -70,6 +70,11 @@ class Employee extends Model
         return $this->hasMany(LeaveRequest::class, 'employee_nip', 'nip');
     }
 
+    public function permissionRequests(): HasMany
+    {
+        return $this->hasMany(PermissionRequest::class, 'employee_nip', 'nip');
+    }
+
     public function leaveQuotas(): HasMany
     {
         return $this->hasMany(LeaveQuota::class, 'employee_nip', 'nip');

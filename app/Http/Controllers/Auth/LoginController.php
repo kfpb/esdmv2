@@ -50,7 +50,7 @@ class LoginController extends Controller
         // Validasi keberadaan akun dan kecocokan hash Bcrypt password
         if (!$user || !Hash::check($password, $user->password)) {
             throw ValidationException::withMessages([
-                'login' => 'Kredensial yang Anda masukkan tidak sesuai dengan catatan sistem.',
+                'login' => 'NIP/Password yang Anda masukkan tidak sesuai dengan catatan sistem.',
             ]);
         }
 

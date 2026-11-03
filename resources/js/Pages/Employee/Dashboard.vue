@@ -765,7 +765,7 @@ const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currenc
                 </div>
             </div>
             <Link
-                href="/forms"
+                href="/izin/buat"
                 class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white text-[#005BAC] font-bold text-xs sm:text-sm hover:bg-slate-100 transition-colors shadow-sm w-full sm:w-auto shrink-0"
             >
                 <span>Ajukan Permohonan</span>

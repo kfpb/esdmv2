@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\AttendanceController;
+use App\Http\Controllers\PermissionRequestController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -48,4 +49,13 @@ Route::middleware('auth')->group(function () {
         Route::post('/masuk',  [AttendanceController::class, 'checkIn'])->name('masuk');
         Route::post('/pulang', [AttendanceController::class, 'checkOut'])->name('pulang');
     });
+
+    // ===== Permohonan Izin / Lapor Tidak Masuk Kerja =====
+    Route::prefix('izin')->name('izin.')->group(function () {
+        Route::get('/buat', [PermissionRequestController::class, 'create'])->name('create');
+        Route::post('/simpan', [PermissionRequestController::class, 'store'])->name('store');
+    });
+
+    // ===== Laporan & Rekapitulasi Izin Pegawai (Admin / HRD) =====
+    Route::get('/admin/izin', [PermissionRequestController::class, 'index'])->name('admin.izin.index');
 });

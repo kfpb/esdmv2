@@ -502,14 +502,18 @@ const isCurrentUrl = (path) => {
                                 </li>
                                 <li>
                                     <Link
-                                        href="/forms"
-                                        class="flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors text-slate-600 hover:bg-slate-100/80 hover:text-slate-900"
+                                        href="/admin/izin"
+                                        :class="[
+                                            'flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/admin/izin')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
                                     >
                                         <div class="flex items-center gap-2.5">
                                             <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                            <span>Persetujuan Cuti & Izin</span>
+                                            <span>Data Izin & Cuti Pegawai</span>
                                         </div>
-                                        <span class="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-1.5 py-0.2 rounded-full">5</span>
                                     </Link>
                                 </li>
                                 <li>
@@ -698,11 +702,11 @@ const isCurrentUrl = (path) => {
                                 </li>
                                 <li>
                                     <Link
-                                        href="/forms"
+                                        href="/izin/buat"
                                         class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
                                     >
                                         <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Pengajuan Cuti & Cek Kuota</span>
+                                        <span>Lapor Izin / Sakit / Cuti</span>
                                     </Link>
                                 </li>
                                 <li>
