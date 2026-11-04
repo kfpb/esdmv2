@@ -51,4 +51,35 @@ class User extends Authenticatable
     {
         return in_array($this->role, ['admin', 'superadmin', 'director', 'hrd', 'supervisor']);
     }
+
+    public function isSecurity(): bool
+    {
+        return str_starts_with($this->username ?? '', 'SC_')
+            || str_starts_with($this->employee_nip ?? '', 'SC_')
+            || $this->role === 'security'
+            || $this->isAdmin();
+    }
+
+    public function isSupervisor(): bool
+    {
+        if (in_array($this->role, ['supervisor', 'admin', 'superadmin', 'director'])) {
+            return true;
+        }
+
+        // Cek apakah NIP ini memiliki bawahan di tabel struktur
+        if (! empty($this->employee_nip)) {
+            try {
+                $hasSubordinates = \Illuminate\Support\Facades\DB::table('sql_sdm.tbl_struktur')
+                    ->where('id_jab_b', $this->employee_nip)
+                    ->exists();
+                if ($hasSubordinates) {
+                    return true;
+                }
+            } catch (\Throwable $e) {
+                // Ignore fallback
+            }
+        }
+
+        return false;
+    }
 }

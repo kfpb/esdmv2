@@ -103,7 +103,9 @@ class MigrateLegacyDataCommand extends Command
                     if ($tablesFilter) {
                         $isAllowed = in_array($lowerTbl, $tablesFilter) 
                             || ($lowerTbl === 'tbl_user' && in_array('user', $tablesFilter))
-                            || ($lowerTbl === 'tbl_user' && in_array('users', $tablesFilter));
+                            || ($lowerTbl === 'tbl_user' && in_array('users', $tablesFilter))
+                            || ($lowerTbl === 'izin_keluar' && in_array('exit_permits', $tablesFilter))
+                            || ($lowerTbl === 'izin_keluar' && in_array('izin-keluar', $tablesFilter));
                         if (!$isAllowed) {
                             continue;
                         }
@@ -280,6 +282,80 @@ class MigrateLegacyDataCommand extends Command
                             ['id' => (string) $values[0]],
                             ['id' => (string) $values[0], 'regency_id' => (string) $values[1], 'name' => $values[2], 'created_at' => now(), 'updated_at' => now()]
                         );
+                    }
+                    break;
+
+                // Izin Keluar Kantor (izin_keluar -> exit_permits)
+                case 'izin_keluar':
+                    if (isset($values[0], $values[3], $values[5])) {
+                        $id = (int) $values[0];
+                        $nip = trim((string) $values[3]);
+                        $tgl = $this->cleanDate($values[5] ?? null);
+
+                        if ($nip && $tgl) {
+                            $legacyStatus = strtolower(trim($values[21] ?? 'pending'));
+                            $kdApprove = isset($values[13]) && is_numeric($values[13]) ? (int) $values[13] : 0;
+
+                            $approvalStatus = 0;
+                            if ($legacyStatus === 'selesai' || $legacyStatus === 'kembali') {
+                                $approvalStatus = 4;
+                            } elseif ($legacyStatus === 'keluar') {
+                                $approvalStatus = 3;
+                            } elseif ($legacyStatus === 'rejected' || $kdApprove === 2) {
+                                $approvalStatus = 2;
+                            } elseif ($legacyStatus === 'approved' || $kdApprove === 1) {
+                                $approvalStatus = 1;
+                            } else {
+                                $approvalStatus = 0;
+                            }
+
+                            // Format reason & metadata historis
+                            $metaNotes = [];
+                            if (!empty($values[8]) && $values[8] !== 'NULL') {
+                                $metaNotes[] = "[Tipe: " . trim($values[8]) . "]";
+                            }
+                            if (!empty($values[10]) && $values[10] === 'N') {
+                                $metaNotes[] = "[Langsung Pulang]";
+                            }
+                            if (!empty($values[11]) && $values[11] !== 'NULL') {
+                                $atasanStr = trim($values[11]) . (!empty($values[12]) && $values[12] !== 'NULL' ? " - " . trim($values[12]) : "");
+                                $metaNotes[] = "[Atasan: $atasanStr]";
+                            }
+                            if (!empty($values[14]) && $values[14] !== 'NULL') {
+                                $metaNotes[] = "[Catatan Atasan: " . trim($values[14]) . "]";
+                            }
+                            if (!empty($values[17]) && $values[17] !== 'NULL') {
+                                $satpamKeluar = (!empty($values[19]) && $values[19] !== 'NULL') ? " by " . trim($values[19]) : "";
+                                $metaNotes[] = "[ScanKeluar: " . trim($values[17]) . $satpamKeluar . "]";
+                            }
+                            if (!empty($values[18]) && $values[18] !== 'NULL') {
+                                $satpamKembali = (!empty($values[20]) && $values[20] !== 'NULL') ? " by " . trim($values[20]) : "";
+                                $metaNotes[] = "[ScanKembali: " . trim($values[18]) . $satpamKembali . "]";
+                            }
+
+                            $fullReason = trim($values[9] ?? '');
+                            if (!empty($metaNotes)) {
+                                $fullReason .= "\n\n" . implode(' ', $metaNotes);
+                            }
+
+                            $createdAt = $this->cleanDateTime($values[22] ?? null) ?: now();
+                            $updatedAt = $this->cleanDateTime($values[23] ?? null) ?: $createdAt;
+
+                            DB::table('exit_permits')->updateOrInsert(
+                                ['id' => $id],
+                                [
+                                    'id'              => $id,
+                                    'employee_nip'    => $nip,
+                                    'date'            => $tgl,
+                                    'exit_time'       => $this->cleanTime($values[6] ?? null) ?: '00:00:00',
+                                    'return_time'     => $this->cleanTime($values[7] ?? null),
+                                    'reason'          => $fullReason,
+                                    'approval_status' => $approvalStatus,
+                                    'created_at'      => $createdAt,
+                                    'updated_at'      => $updatedAt,
+                                ]
+                            );
+                        }
                     }
                     break;
 
