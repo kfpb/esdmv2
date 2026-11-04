@@ -65,6 +65,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/', [ExitPermitController::class, 'employeeIndex'])->name('index');
         Route::post('/', [ExitPermitController::class, 'store'])->name('store');
         Route::post('/{exitPermit}/approval', [ExitPermitController::class, 'supervisorApproval'])->name('approval');
+        Route::get('/status/{exitPermit}', [ExitPermitController::class, 'checkTicketStatus'])->name('ticket-status');
         Route::get('/scan', [ExitPermitController::class, 'securityIndex'])->name('scanner');
         Route::post('/scan/process', [ExitPermitController::class, 'securityProcessScan'])->name('scan-process');
     });

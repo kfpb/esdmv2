@@ -1,7 +1,7 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link, router } from '@inertiajs/vue3';
-import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, reactive, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import Toast from 'primevue/toast';
 import { useToast } from 'primevue/usetoast';
 import Button from 'primevue/button';
@@ -28,6 +28,7 @@ const toast = useToast();
 
 // Form Scan Input
 const inputCode = ref('');
+const inputRef = ref(null);
 const isProcessing = ref(false);
 
 // State Hasil Scan Terakhir
@@ -41,7 +42,33 @@ const cameraError = ref('');
 let html5QrCode = null;
 let lastScannedCode = '';
 let lastScannedTimestamp = 0;
+let removeRouterListener = null;
 const currentFacingMode = ref('environment'); // 'environment' (kamera belakang) | 'user' (depan/webcam)
+
+/**
+ * Hentikan langsung semua track MediaStream di browser hardware.
+ * Ini mencegah CPU / RAM memory leak saat navigasi berpindah halaman di Vue/Inertia.
+ */
+function hardStopCameraTracks() {
+    try {
+        const streamContainer = document.getElementById('qr-camera-stream');
+        if (streamContainer) {
+            const videos = streamContainer.querySelectorAll('video');
+            videos.forEach((vid) => {
+                if (vid.srcObject && typeof vid.srcObject.getTracks === 'function') {
+                    vid.srcObject.getTracks().forEach((track) => {
+                        try {
+                            track.stop();
+                        } catch (e) {}
+                    });
+                    vid.srcObject = null;
+                }
+            });
+        }
+    } catch (e) {
+        console.error('Error hard-stopping camera streams:', e);
+    }
+}
 
 async function startCamera() {
     cameraError.value = '';
@@ -55,9 +82,16 @@ async function startCamera() {
         }
 
         const config = {
-            fps: 10,
-            qrbox: { width: 250, height: 250 },
+            fps: 15,
+            qrbox: (viewfinderWidth, viewfinderHeight) => {
+                const edge = Math.min(viewfinderWidth, viewfinderHeight);
+                const size = Math.max(220, Math.floor(edge * 0.8));
+                return { width: size, height: size };
+            },
             aspectRatio: 1.0,
+            experimentalFeatures: {
+                useBarCodeDetectorIfSupported: true,
+            },
         };
 
         await html5QrCode.start(
@@ -67,11 +101,11 @@ async function startCamera() {
                 onQrCodeScanned(decodedText);
             },
             () => {
-                // Ignore scanning frame errors
+                // Ignore scanning frame loop
             }
         );
     } catch (err) {
-        cameraError.value = 'Tidak dapat mengakses kamera. Pastikan izin kamera telah disetujui di peramban Anda.';
+        cameraError.value = 'Tidak dapat mengakses sensor kamera. Pastikan izin kamera telah disetujui di peramban Anda.';
         isCameraActive.value = false;
         console.error('Kamera scanner error:', err);
     } finally {
@@ -80,13 +114,17 @@ async function startCamera() {
 }
 
 async function stopCamera() {
+    hardStopCameraTracks();
     if (html5QrCode) {
         try {
             if (html5QrCode.isScanning) {
                 await html5QrCode.stop();
             }
+            html5QrCode.clear();
         } catch (err) {
-            console.error('Error stopping camera:', err);
+            // Ignore error during cleanup
+        } finally {
+            html5QrCode = null;
         }
     }
     isCameraActive.value = false;
@@ -127,21 +165,34 @@ function playScanBeep() {
 }
 
 function onQrCodeScanned(decodedText) {
-    const raw = String(decodedText || '').trim();
+    let raw = String(decodedText || '').trim();
     if (!raw) return;
 
     let code = raw;
+    // Tangani token= atau code= dari URL QR
     if (raw.includes('token=')) {
         try {
             code = raw.split('token=')[1].split('&')[0];
         } catch (e) {
             code = raw;
         }
+    } else if (raw.includes('code=')) {
+        try {
+            code = raw.split('code=')[1].split('&')[0];
+        } catch (e) {
+            code = raw;
+        }
+    }
+
+    // Ekstrak pola IK-xxxx-xxx jika ada
+    const match = raw.match(/IK-\d+-(\d+)/i);
+    if (match) {
+        code = match[0];
     }
 
     const now = Date.now();
-    // Debounce 3 detik untuk kode yang sama agar tidak double submit
-    if (code === lastScannedCode && now - lastScannedTimestamp < 3000) {
+    // Debounce 3.5 detik untuk kode yang sama agar tidak double submit
+    if (code === lastScannedCode && now - lastScannedTimestamp < 3500) {
         return;
     }
     lastScannedCode = code;
@@ -152,13 +203,38 @@ function onQrCodeScanned(decodedText) {
     submitScan(code);
 }
 
-onUnmounted(async () => {
-    await stopCamera();
+// Lifecycle listeners: hentikan kamera secara instan saat navigasi Inertia terjadi
+onMounted(() => {
+    removeRouterListener = router.on('before', () => {
+        hardStopCameraTracks();
+        if (html5QrCode && html5QrCode.isScanning) {
+            try {
+                html5QrCode.stop();
+            } catch (e) {}
+        }
+    });
+});
+
+onBeforeUnmount(() => {
+    if (typeof removeRouterListener === 'function') {
+        removeRouterListener();
+    }
+    hardStopCameraTracks();
     if (html5QrCode) {
         try {
-            html5QrCode.clear();
+            if (html5QrCode.isScanning) {
+                html5QrCode.stop().catch(() => {}).finally(() => {
+                    try { html5QrCode.clear(); } catch(e) {}
+                    html5QrCode = null;
+                });
+            } else {
+                html5QrCode.clear();
+                html5QrCode = null;
+            }
         } catch (e) {}
     }
+    isCameraActive.value = false;
+    isCameraStarting.value = false;
 });
 
 // Pemrosesan Scan (Bisa dari tembakan USB Scanner barcode atau input manual atau QR decode)
@@ -221,6 +297,11 @@ function submitScan(customCode = null) {
     })
     .finally(() => {
         isProcessing.value = false;
+        // Kembalikan fokus kursor ke input agar siap scan berikutnya
+        nextTick(() => {
+            const inputEl = document.getElementById('inputCode');
+            if (inputEl) inputEl.focus();
+        });
     });
 }
 </script>
@@ -286,8 +367,29 @@ function submitScan(customCode = null) {
                         :severity="isCameraActive ? 'danger' : 'success'"
                         size="small"
                         :outlined="!isCameraActive"
-                        class="shrink-0"
+                        class="shrink-0 font-bold"
                         @click="toggleCamera"
+                    />
+                </div>
+
+                <!-- Banner Pilihan Kamera Scanner Live (Ketika Kamera Belum Dibuka) -->
+                <div v-if="!isCameraActive" class="p-4 rounded-xl border border-dashed border-emerald-300 bg-emerald-50/60 flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                        <div class="size-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                            <i class="pi pi-camera text-lg" />
+                        </div>
+                        <div>
+                            <div class="font-bold text-xs sm:text-sm text-slate-800">Pemindai Kamera Live (Webcam / HP)</div>
+                            <p class="text-[11px] text-slate-500">Nyalakan sensor kamera untuk memindai tiket QR izin pegawai secara instan.</p>
+                        </div>
+                    </div>
+                    <Button
+                        label="Buka Kamera Scanner"
+                        icon="pi pi-video"
+                        severity="success"
+                        size="small"
+                        class="shrink-0 w-full sm:w-auto font-bold cursor-pointer"
+                        @click="startCamera"
                     />
                 </div>
 

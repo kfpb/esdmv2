@@ -377,26 +377,51 @@ class ExitPermitController extends Controller
             'code' => ['required', 'string'],
         ]);
 
-        $rawCode = trim($request->input('code'));
+        $rawCode = trim((string) $request->input('code', ''));
         $permit  = null;
 
-        // Cari berdasarkan kode tiket (contoh: IK-20261104-001) atau ID numerik
-        if (preg_match('/IK-\d{8}-(\d+)/i', $rawCode, $matches)) {
+        // 1. Ekstrak dari format query/URL jika mengandung token= atau code=
+        if (str_contains($rawCode, 'token=')) {
+            $parsed = parse_url($rawCode);
+            if (isset($parsed['query'])) {
+                parse_str($parsed['query'], $queryArr);
+                if (! empty($queryArr['token'])) {
+                    $rawCode = trim($queryArr['token']);
+                }
+            }
+        } elseif (str_contains($rawCode, 'code=')) {
+            $parsed = parse_url($rawCode);
+            if (isset($parsed['query'])) {
+                parse_str($parsed['query'], $queryArr);
+                if (! empty($queryArr['code'])) {
+                    $rawCode = trim($queryArr['code']);
+                }
+            }
+        }
+
+        // 2. Ekstrak pola IK-YYYYMMDD-ID (contoh: IK-20261104-001) atau IK-ID
+        if (preg_match('/IK-\d+-(\d+)/i', $rawCode, $matches)) {
             $id = (int) $matches[1];
             $permit = ExitPermit::with(['employee.division'])->find($id);
-        } elseif (is_numeric($rawCode)) {
+        } elseif (preg_match('/IK-(\d+)/i', $rawCode, $matches)) {
+            $id = (int) $matches[1];
+            $permit = ExitPermit::with(['employee.division'])->find($id);
+        }
+
+        // 3. Jika numerik murni (misal input ID izin langsung)
+        if (! $permit && is_numeric($rawCode)) {
             $permit = ExitPermit::with(['employee.division'])->find((int) $rawCode);
-        } else {
-            // Coba cari substring kode izin
-            $permit = ExitPermit::with(['employee.division'])
-                ->where('id', $rawCode)
-                ->first();
+        }
+
+        // 4. Jika masih belum ditemukan, coba cari angka di akhir string
+        if (! $permit && preg_match('/(\d+)$/', $rawCode, $mNum)) {
+            $permit = ExitPermit::with(['employee.division'])->find((int) $mNum[1]);
         }
 
         if (! $permit) {
             return response()->json([
                 'success' => false,
-                'message' => 'Tiket Izin Keluar tidak ditemukan di sistem.',
+                'message' => 'Tiket Izin Keluar tidak ditemukan di sistem. Pastikan QR code atau kode izin sesuai.',
             ], 404);
         }
 
@@ -408,7 +433,7 @@ class ExitPermitController extends Controller
         if ($permitDate !== $today) {
             return response()->json([
                 'success' => false,
-                'message' => "QR Code ini hanya berlaku pada tanggal {$permit->date->format('d/m/Y')}. Hari ini adalah " . now('Asia/Jakarta')->format('d/m/Y') . '.',
+                'message' => "QR Code [{$permit->kode_izin}] ini hanya berlaku pada tanggal {$permit->date->format('d/m/Y')}. Hari ini adalah " . now('Asia/Jakarta')->format('d/m/Y') . '. Gate pass hanya dapat digunakan pada hari pelaksanaan izin.',
             ], 422);
         }
 
@@ -416,14 +441,14 @@ class ExitPermitController extends Controller
         if ($permit->approval_status === ExitPermit::STATUS_PENDING) {
             return response()->json([
                 'success' => false,
-                'message' => 'Izin keluar belum disetujui (Approved) oleh atasan pengaju.',
+                'message' => "Izin keluar [{$permit->kode_izin}] atas nama {$permit->employee?->full_name} belum disetujui (Approved) oleh atasan pengaju. Silakan minta approval atasan terlebih dahulu.",
             ], 422);
         }
 
         if ($permit->approval_status === ExitPermit::STATUS_REJECTED) {
             return response()->json([
                 'success' => false,
-                'message' => 'Izin keluar ini telah DITOLAK oleh atasan pengaju.',
+                'message' => "Izin keluar [{$permit->kode_izin}] telah DITOLAK oleh atasan pengaju.",
             ], 422);
         }
 
@@ -519,6 +544,40 @@ class ExitPermitController extends Controller
             'success' => false,
             'message' => 'Tiket izin keluar ini sudah SELESAI digunakan (jam keluar dan kembali telah tercatat lengkap).',
         ], 422);
+    }
+
+    /**
+     * Endpoint polling ringan untuk memeriksa status tiket izin keluar secara real-time.
+     * Digunakan saat pegawai membuka modal QR di pos satpam (seperti check_status_izinkeluar.php di ESDM lama).
+     */
+    public function checkTicketStatus(ExitPermit $exitPermit): \Illuminate\Http\JsonResponse
+    {
+        $currentUser = Auth::user();
+        if (! $currentUser) {
+            return response()->json(['error' => 'Unauthenticated'], 401);
+        }
+
+        // Pastikan hanya pemilik tiket, satpam, atau yang berwenang yang dapat memeriksa
+        if (! $currentUser->hasAdminAccess() && ! $currentUser->isSecurity() && $exitPermit->employee_nip !== $currentUser->employee_nip && $exitPermit->employee_nip !== $currentUser->nip) {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        $statusLabels = [
+            ExitPermit::STATUS_PENDING   => 'Menunggu Persetujuan',
+            ExitPermit::STATUS_APPROVED  => 'Disetujui Atasan',
+            ExitPermit::STATUS_REJECTED  => 'Ditolak',
+            ExitPermit::STATUS_OUT       => 'Sudah Keluar',
+            ExitPermit::STATUS_COMPLETED => 'Selesai',
+        ];
+
+        return response()->json([
+            'id'                 => $exitPermit->id,
+            'kode_izin'          => $exitPermit->kode_izin,
+            'approval_status'    => (int) $exitPermit->approval_status,
+            'status_label'       => $statusLabels[$exitPermit->approval_status] ?? 'Unknown',
+            'actual_exit_time'   => $exitPermit->actual_exit_time,
+            'actual_return_time' => $exitPermit->actual_return_time,
+        ]);
     }
 
     /**

@@ -14,7 +14,7 @@ export function generateQrSvg(text, size = 180) {
             String(text),
             {
                 type: 'svg',
-                margin: 2,
+                margin: 4, // ISO/IEC 18004 4-module quiet zone requirement
                 width: size,
                 errorCorrectionLevel: 'M',
                 color: {
@@ -45,7 +45,7 @@ export async function generateQrDataUrl(text, size = 180) {
     if (!text) return '';
     try {
         return await QRCode.toDataURL(String(text), {
-            margin: 2,
+            margin: 4,
             width: size,
             errorCorrectionLevel: 'M',
         });

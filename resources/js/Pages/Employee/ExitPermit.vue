@@ -1,7 +1,7 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link, useForm, router } from '@inertiajs/vue3';
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, onBeforeUnmount } from 'vue';
 import Toast from 'primevue/toast';
 import { useToast } from 'primevue/usetoast';
 import DatePicker from 'primevue/datepicker';
@@ -144,6 +144,9 @@ function submitForm() {
 // Modal Tiket Izin Keluar / Gate Pass (untuk ditunjukkan ke Satpam)
 const showTicketModal = ref(false);
 const activeTicket = ref(null);
+const isTicketScannedSuccess = ref(false);
+const ticketScanMessage = ref('');
+let ticketPollInterval = null;
 
 // QR Code SVG asli ter-generate
 const qrSvgHtml = computed(() => {
@@ -152,14 +155,110 @@ const qrSvgHtml = computed(() => {
     return generateQrSvg(code, 180);
 });
 
+function playSuccessChime() {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.1); // A5
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.4);
+    } catch (e) {
+        // AudioContext not supported/allowed
+    }
+}
+
+/**
+ * Polling real-time status izin saat modal tiket QR dibuka.
+ * Mengikuti pola check_status_izinkeluar.php di ESDM lama:
+ * Jika satpam melakukan scan di pos gerbang, layar pegawai otomatis mendeteksi perubahan status secara instan!
+ */
+function startTicketPolling(permit) {
+    stopTicketPolling();
+    const initialStatus = permit.approval_status;
+    const permitId = permit.id;
+
+    ticketPollInterval = setInterval(async () => {
+        if (!showTicketModal.value || !activeTicket.value || activeTicket.value.id !== permitId) {
+            stopTicketPolling();
+            return;
+        }
+
+        try {
+            const response = await fetch(`/izin-keluar/status/${permitId}`, {
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+            if (!response.ok) return;
+
+            const resData = await response.json();
+
+            // Deteksi perubahan status setelah tiket di-scan oleh satpam
+            if (resData.approval_status !== undefined && resData.approval_status !== initialStatus) {
+                stopTicketPolling();
+                playSuccessChime();
+                isTicketScannedSuccess.value = true;
+
+                let successDetail = 'Tiket Gate Pass Anda telah berhasil dipindai oleh Petugas Pos Satpam.';
+                if (resData.approval_status === 3) {
+                    successDetail = `Jam KELUAR berhasil dicatat (${resData.actual_exit_time || ''}). Anda diizinkan meninggalkan area pabrik.`;
+                } else if (resData.approval_status === 4) {
+                    successDetail = `Jam KEMBALI / MASUK berhasil dicatat (${resData.actual_return_time || ''}). Izin keluar kantor telah SELESAI.`;
+                }
+
+                ticketScanMessage.value = successDetail;
+
+                toast.add({
+                    severity: 'success',
+                    summary: 'Tiket Berhasil Discan Satpam!',
+                    detail: successDetail,
+                    life: 6000,
+                });
+
+                // Perbarui status tiket lokal
+                activeTicket.value.approval_status = resData.approval_status;
+
+                // Tutup modal secara otomatis setelah 1.5 detik & reload riwayat tabel
+                setTimeout(() => {
+                    closeTicketModal();
+                    router.reload({ only: ['myExitPermits'] });
+                }, 1600);
+            }
+        } catch (e) {
+            // Abaikan kesalahan koneksi sementara
+        }
+    }, 2500); // Polling setiap 2.5 detik
+}
+
+function stopTicketPolling() {
+    if (ticketPollInterval) {
+        clearInterval(ticketPollInterval);
+        ticketPollInterval = null;
+    }
+}
+
 function openTicket(permit) {
     activeTicket.value = permit;
+    isTicketScannedSuccess.value = false;
+    ticketScanMessage.value = '';
     showTicketModal.value = true;
+    startTicketPolling(permit);
 }
 
 function closeTicketModal() {
+    stopTicketPolling();
     showTicketModal.value = false;
     activeTicket.value = null;
+    isTicketScannedSuccess.value = false;
+    ticketScanMessage.value = '';
 }
 const closeTicket = closeTicketModal;
 
@@ -200,7 +299,12 @@ onMounted(() => {
     window.addEventListener('keydown', handleEscapeKey);
 });
 
+onBeforeUnmount(() => {
+    stopTicketPolling();
+});
+
 onUnmounted(() => {
+    stopTicketPolling();
     window.removeEventListener('keydown', handleEscapeKey);
 });
 
@@ -1244,7 +1348,21 @@ function handleSupervisorApproval() {
                         <span class="text-xs font-mono font-bold text-slate-800 mt-2 block tracking-wider">
                             {{ activeTicket.kode_izin }}
                         </span>
-                        <span class="text-[10px] text-slate-400 mt-1 block leading-tight">
+
+                        <!-- Indikator Status Polling Real-time (Fitur Otomatisasi Seperti ESDM Lama) -->
+                        <div v-if="isTicketScannedSuccess" class="mt-2.5 p-2.5 rounded-xl bg-emerald-50 border border-emerald-300 flex items-center justify-center gap-2 text-xs text-emerald-800 font-bold animate-pulse">
+                            <i class="pi pi-check-circle text-base text-emerald-600 shrink-0" />
+                            <span>{{ ticketScanMessage || 'Berhasil discan oleh Satpam! Memperbarui status...' }}</span>
+                        </div>
+                        <div v-else class="mt-2.5 p-2 rounded-xl bg-blue-50/90 border border-blue-200 flex items-center justify-center gap-2 text-[11px] text-[#005BAC]">
+                            <span class="relative flex size-2 shrink-0">
+                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                <span class="relative inline-flex rounded-full size-2 bg-[#005BAC]"></span>
+                            </span>
+                            <span class="font-medium">Menunggu pemindaian oleh Petugas Pos Satpam...</span>
+                        </div>
+
+                        <span class="text-[10px] text-slate-400 mt-1.5 block leading-tight">
                             Tunjukkan QR code ini kepada petugas keamanan di Pos Satpam saat keluar maupun kembali.
                         </span>
                     </div>
