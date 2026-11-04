@@ -1,9 +1,11 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link, router } from '@inertiajs/vue3';
-import { ref, reactive } from 'vue';
+import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue';
 import Toast from 'primevue/toast';
 import { useToast } from 'primevue/usetoast';
+import Button from 'primevue/button';
+import { Html5Qrcode } from 'html5-qrcode';
 
 defineOptions({ layout: AuthenticatedLayout });
 
@@ -31,6 +33,133 @@ const isProcessing = ref(false);
 // State Hasil Scan Terakhir
 const lastScanResult = ref(null);
 const scanError = ref('');
+
+// State Kamera Live QR Scanner
+const isCameraActive = ref(false);
+const isCameraStarting = ref(false);
+const cameraError = ref('');
+let html5QrCode = null;
+let lastScannedCode = '';
+let lastScannedTimestamp = 0;
+const currentFacingMode = ref('environment'); // 'environment' (kamera belakang) | 'user' (depan/webcam)
+
+async function startCamera() {
+    cameraError.value = '';
+    isCameraStarting.value = true;
+    isCameraActive.value = true;
+    await nextTick();
+
+    try {
+        if (!html5QrCode) {
+            html5QrCode = new Html5Qrcode('qr-camera-stream');
+        }
+
+        const config = {
+            fps: 10,
+            qrbox: { width: 250, height: 250 },
+            aspectRatio: 1.0,
+        };
+
+        await html5QrCode.start(
+            { facingMode: currentFacingMode.value },
+            config,
+            (decodedText) => {
+                onQrCodeScanned(decodedText);
+            },
+            () => {
+                // Ignore scanning frame errors
+            }
+        );
+    } catch (err) {
+        cameraError.value = 'Tidak dapat mengakses kamera. Pastikan izin kamera telah disetujui di peramban Anda.';
+        isCameraActive.value = false;
+        console.error('Kamera scanner error:', err);
+    } finally {
+        isCameraStarting.value = false;
+    }
+}
+
+async function stopCamera() {
+    if (html5QrCode) {
+        try {
+            if (html5QrCode.isScanning) {
+                await html5QrCode.stop();
+            }
+        } catch (err) {
+            console.error('Error stopping camera:', err);
+        }
+    }
+    isCameraActive.value = false;
+    isCameraStarting.value = false;
+}
+
+async function toggleCamera() {
+    if (isCameraActive.value) {
+        await stopCamera();
+    } else {
+        await startCamera();
+    }
+}
+
+async function switchCamera() {
+    currentFacingMode.value = currentFacingMode.value === 'environment' ? 'user' : 'environment';
+    if (isCameraActive.value) {
+        await stopCamera();
+        await startCamera();
+    }
+}
+
+function playScanBeep() {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 880; // A5 beep
+        gain.gain.value = 0.2;
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.12);
+    } catch (e) {
+        // AudioContext not supported/allowed
+    }
+}
+
+function onQrCodeScanned(decodedText) {
+    const raw = String(decodedText || '').trim();
+    if (!raw) return;
+
+    let code = raw;
+    if (raw.includes('token=')) {
+        try {
+            code = raw.split('token=')[1].split('&')[0];
+        } catch (e) {
+            code = raw;
+        }
+    }
+
+    const now = Date.now();
+    // Debounce 3 detik untuk kode yang sama agar tidak double submit
+    if (code === lastScannedCode && now - lastScannedTimestamp < 3000) {
+        return;
+    }
+    lastScannedCode = code;
+    lastScannedTimestamp = now;
+
+    playScanBeep();
+    inputCode.value = code;
+    submitScan(code);
+}
+
+onUnmounted(async () => {
+    await stopCamera();
+    if (html5QrCode) {
+        try {
+            html5QrCode.clear();
+        } catch (e) {}
+    }
+});
 
 // Pemrosesan Scan (Bisa dari tembakan USB Scanner barcode atau input manual atau QR decode)
 function submitScan(customCode = null) {
@@ -135,20 +264,86 @@ function submitScan(customCode = null) {
         <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
             <!-- Panel 1: Input Scanner & Kamera -->
             <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 sm:p-6 space-y-4">
-                <div class="flex items-center gap-2.5 border-b border-slate-100 pb-3">
-                    <div class="size-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                        <i class="pi pi-camera text-base" />
+                <div class="flex items-center justify-between border-b border-slate-100 pb-3 gap-2">
+                    <div class="flex items-center gap-2.5">
+                        <div class="size-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                            <i class="pi pi-camera text-base" />
+                        </div>
+                        <div>
+                            <h2 class="text-sm sm:text-base font-bold text-slate-900">
+                                Pindai Tiket Izin Keluar
+                            </h2>
+                            <p class="text-xs text-slate-500">
+                                Scan via kamera live, barcode scanner USB, atau input manual.
+                            </p>
+                        </div>
                     </div>
-                    <div>
-                        <h2 class="text-sm sm:text-base font-bold text-slate-900">
-                            Pindai Tiket Izin Keluar
-                        </h2>
-                        <p class="text-xs text-slate-500">
-                            Tembakkan barcode scanner USB atau ketikkan kode izin pegawai.
-                        </p>
+
+                    <!-- Tombol Nyalakan / Matikan Kamera -->
+                    <Button
+                        :label="isCameraActive ? 'Tutup Kamera' : 'Buka Kamera'"
+                        :icon="isCameraActive ? 'pi pi-camera-slash' : 'pi pi-camera'"
+                        :severity="isCameraActive ? 'danger' : 'success'"
+                        size="small"
+                        :outlined="!isCameraActive"
+                        class="shrink-0"
+                        @click="toggleCamera"
+                    />
+                </div>
+
+                <!-- Tampilan Kamera Scanner Live (Ketika Dibuka) -->
+                <div v-show="isCameraActive" class="space-y-2.5">
+                    <div class="relative rounded-2xl overflow-hidden bg-slate-950 border-2 border-emerald-500 shadow-md">
+                        <div id="qr-camera-stream" class="w-full min-h-[250px] flex items-center justify-center text-white text-xs">
+                            <span v-if="isCameraStarting" class="flex items-center gap-2 text-slate-300">
+                                <i class="pi pi-spin pi-spinner text-emerald-400" />
+                                <span>Menghubungkan ke sensor kamera...</span>
+                            </span>
+                        </div>
+
+                        <!-- Scan Crosshair / Viewfinder Target Box Overlay -->
+                        <div v-if="!isCameraStarting" class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                            <div class="size-48 sm:size-52 border-2 border-emerald-400/90 rounded-2xl relative shadow-[0_0_0_9999px_rgba(0,0,0,0.3)]">
+                                <span class="absolute -top-1 -left-1 size-4 border-t-4 border-l-4 border-emerald-400 rounded-tl" />
+                                <span class="absolute -top-1 -right-1 size-4 border-t-4 border-r-4 border-emerald-400 rounded-tr" />
+                                <span class="absolute -bottom-1 -left-1 size-4 border-b-4 border-l-4 border-emerald-400 rounded-bl" />
+                                <span class="absolute -bottom-1 -right-1 size-4 border-b-4 border-r-4 border-emerald-400 rounded-br" />
+                                <div class="absolute inset-x-2 top-1/2 h-0.5 bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse" />
+                            </div>
+                            <span class="text-[11px] font-semibold text-white bg-slate-900/80 px-3 py-1 rounded-full mt-3 backdrop-blur-xs border border-white/20">
+                                Arahkan kamera ke QR Code Tiket Izin
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Tombol Pengaturan Kamera (Ganti Kamera & Hentikan) -->
+                    <div class="flex items-center justify-between text-xs pt-0.5">
+                        <button
+                            type="button"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold transition-colors cursor-pointer text-xs"
+                            @click="switchCamera"
+                        >
+                            <i class="pi pi-sync text-[11px]" />
+                            <span>Ganti Kamera Depan/Belakang</span>
+                        </button>
+
+                        <button
+                            type="button"
+                            class="text-rose-600 hover:text-rose-800 font-semibold cursor-pointer text-xs"
+                            @click="stopCamera"
+                        >
+                            Hentikan Kamera
+                        </button>
                     </div>
                 </div>
 
+                <!-- Alert Error Kamera jika ada kendala izin kamera -->
+                <div v-if="cameraError" class="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2">
+                    <i class="pi pi-exclamation-triangle text-amber-600 text-base shrink-0 mt-0.5" />
+                    <span>{{ cameraError }}</span>
+                </div>
+
+                <!-- Form Input Manual / Tembakan Barcode USB (Fungsi Lama 100% Tetap Berjalan) -->
                 <form @submit.prevent="submitScan()" class="space-y-4">
                     <div>
                         <label for="inputCode" class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
@@ -167,7 +362,7 @@ function submitScan(customCode = null) {
                             <i class="pi pi-qrcode absolute left-3.5 top-3.5 text-slate-400 text-base" />
                         </div>
                         <span class="text-[11px] text-slate-400 block mt-1">
-                            Tip: Arahkan kursor ke kolom di atas lalu scan tiket QR pegawai.
+                            Tip: Kode tiket dari kamera atau scanner USB akan terisi otomatis di sini.
                         </span>
                     </div>
 
@@ -180,7 +375,7 @@ function submitScan(customCode = null) {
                     <button
                         type="submit"
                         :disabled="isProcessing || !inputCode.trim()"
-                        class="w-full inline-flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        class="w-full inline-flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                     >
                         <i v-if="isProcessing" class="pi pi-spin pi-spinner text-sm" />
                         <i v-else class="pi pi-check text-sm" />
@@ -341,4 +536,16 @@ function submitScan(customCode = null) {
 
     </div>
 </template>
+
+<style>
+#qr-camera-stream video {
+    width: 100% !important;
+    max-height: 280px !important;
+    object-fit: cover !important;
+    border-radius: 0.875rem;
+}
+#qr-camera-stream {
+    border: none !important;
+}
+</style>
 
