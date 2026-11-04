@@ -5,7 +5,7 @@ import { ref, reactive, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import Toast from 'primevue/toast';
 import { useToast } from 'primevue/usetoast';
 import Button from 'primevue/button';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 
 defineOptions({ layout: AuthenticatedLayout });
 
@@ -78,20 +78,18 @@ async function startCamera() {
 
     try {
         if (!html5QrCode) {
-            html5QrCode = new Html5Qrcode('qr-camera-stream');
+            html5QrCode = new Html5Qrcode('qr-camera-stream', {
+                formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+                verbose: false,
+            });
         }
 
+        // Konfigurasi optimal:
+        // - fps: 10 (standar stabil seperti sistem lama, memberi waktu decode optimal di CPU)
+        // - Tanpa fixed qrbox: memindai seluruh frame sensor kamera (full-area scanning)
+        // - Tanpa paksaan aspectRatio 1.0: webcam laptop dapat menggunakan resolusi asli (16:9 / 4:3) tanpa distorsi pixel
         const config = {
-            fps: 15,
-            qrbox: (viewfinderWidth, viewfinderHeight) => {
-                const edge = Math.min(viewfinderWidth, viewfinderHeight);
-                const size = Math.max(220, Math.floor(edge * 0.8));
-                return { width: size, height: size };
-            },
-            aspectRatio: 1.0,
-            experimentalFeatures: {
-                useBarCodeDetectorIfSupported: true,
-            },
+            fps: 10,
         };
 
         await html5QrCode.start(
@@ -101,7 +99,7 @@ async function startCamera() {
                 onQrCodeScanned(decodedText);
             },
             () => {
-                // Ignore scanning frame loop
+                // Abaikan loop frame yang belum mendeteksi QR
             }
         );
     } catch (err) {
@@ -165,6 +163,10 @@ function playScanBeep() {
 }
 
 function onQrCodeScanned(decodedText) {
+    if (isProcessing.value) {
+        return; // Jangan memproses jika sedang menunggu validasi sebelumnya
+    }
+
     let raw = String(decodedText || '').trim();
     if (!raw) return;
 
@@ -396,16 +398,20 @@ function submitScan(customCode = null) {
                 <!-- Tampilan Kamera Scanner Live (Ketika Dibuka) -->
                 <div v-show="isCameraActive" class="space-y-2.5">
                     <div class="relative rounded-2xl overflow-hidden bg-slate-950 border-2 border-emerald-500 shadow-md">
-                        <div id="qr-camera-stream" class="w-full min-h-[250px] flex items-center justify-center text-white text-xs">
-                            <span v-if="isCameraStarting" class="flex items-center gap-2 text-slate-300">
+                        <!-- Isolasi DOM murni untuk Html5Qrcode (steril tanpa child node Vue agar tidak crash insertBefore) -->
+                        <div id="qr-camera-stream" class="w-full min-h-[280px] bg-black"></div>
+
+                        <!-- Overlay Loading Kamera (Sibling di luar qr-camera-stream) -->
+                        <div v-if="isCameraStarting" class="absolute inset-0 flex items-center justify-center bg-slate-950/80 z-20 text-white text-xs">
+                            <span class="flex items-center gap-2 text-slate-300">
                                 <i class="pi pi-spin pi-spinner text-emerald-400" />
                                 <span>Menghubungkan ke sensor kamera...</span>
                             </span>
                         </div>
 
                         <!-- Scan Crosshair / Viewfinder Target Box Overlay -->
-                        <div v-if="!isCameraStarting" class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                            <div class="size-48 sm:size-52 border-2 border-emerald-400/90 rounded-2xl relative shadow-[0_0_0_9999px_rgba(0,0,0,0.3)]">
+                        <div v-if="!isCameraStarting" class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center z-10">
+                            <div class="size-48 sm:size-56 border-2 border-emerald-400/90 rounded-2xl relative shadow-[0_0_0_9999px_rgba(0,0,0,0.3)]">
                                 <span class="absolute -top-1 -left-1 size-4 border-t-4 border-l-4 border-emerald-400 rounded-tl" />
                                 <span class="absolute -top-1 -right-1 size-4 border-t-4 border-r-4 border-emerald-400 rounded-tr" />
                                 <span class="absolute -bottom-1 -left-1 size-4 border-b-4 border-l-4 border-emerald-400 rounded-bl" />
