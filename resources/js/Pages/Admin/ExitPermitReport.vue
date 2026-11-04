@@ -719,8 +719,8 @@ onUnmounted(() => {
 
                     <!-- QR Code Asli Ter-generate (Bisa discan HP / Satpam) -->
                     <div class="text-center pt-1">
-                        <div class="size-40 sm:size-44 mx-auto border-2 border-dashed border-slate-300 rounded-2xl p-2.5 flex flex-col items-center justify-center bg-white shadow-inner overflow-hidden">
-                            <div v-if="qrSvgHtml" v-html="qrSvgHtml" class="flex items-center justify-center size-full" />
+                        <div class="size-44 sm:size-48 mx-auto border-2 border-slate-300 rounded-2xl p-2.5 flex flex-col items-center justify-center bg-white shadow-inner overflow-hidden">
+                            <div v-if="qrSvgHtml" v-html="qrSvgHtml" class="flex items-center justify-center size-full [&>svg]:w-full [&>svg]:h-full [&>svg]:block" />
                             <div v-else class="text-slate-400 text-xs">Memuat QR Code...</div>
                         </div>
                         <span class="text-xs font-mono font-bold text-slate-800 mt-2 block tracking-wider">
