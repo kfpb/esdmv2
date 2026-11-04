@@ -4,6 +4,12 @@ import { Head, Link, useForm, router } from '@inertiajs/vue3';
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import Toast from 'primevue/toast';
 import { useToast } from 'primevue/usetoast';
+import DatePicker from 'primevue/datepicker';
+import InputText from 'primevue/inputtext';
+import Textarea from 'primevue/textarea';
+import RadioButton from 'primevue/radiobutton';
+import Button from 'primevue/button';
+import IftaLabel from 'primevue/iftalabel';
 import { generateQrSvg } from '@/Utils/qrcode';
 
 defineOptions({ layout: AuthenticatedLayout });
@@ -51,7 +57,34 @@ const activeTab = ref(props.subordinatePendingCount > 0 && props.isSupervisor ? 
 // State Modal Form Pengajuan Mandiri
 const showCreateModal = ref(false);
 
+// Tanggal izin (Date object untuk PrimeVue DatePicker)
+function getInitialDate() {
+    if (props.todayDate) {
+        const parts = props.todayDate.split('-');
+        if (parts.length === 3) {
+            return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 0, 0, 0);
+        }
+    }
+    return new Date();
+}
+
+const selectedDate = ref(getInitialDate());
+const minDateObj = computed(() => {
+    if (props.todayDate) {
+        const parts = props.todayDate.split('-');
+        if (parts.length === 3) {
+            return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 0, 0, 0);
+        }
+    }
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+});
+
 function openCreateModal() {
+    if (!selectedDate.value) {
+        selectedDate.value = getInitialDate();
+    }
     showCreateModal.value = true;
 }
 
@@ -72,6 +105,16 @@ const form = useForm({
 });
 
 function submitForm() {
+    // Sinkronisasi tanggal dari PrimeVue DatePicker ke format YYYY-MM-DD untuk validasi Laravel
+    if (selectedDate.value instanceof Date && !isNaN(selectedDate.value.getTime())) {
+        const y = selectedDate.value.getFullYear();
+        const m = String(selectedDate.value.getMonth() + 1).padStart(2, '0');
+        const d = String(selectedDate.value.getDate()).padStart(2, '0');
+        form.date = `${y}-${m}-${d}`;
+    } else if (typeof selectedDate.value === 'string' && selectedDate.value) {
+        form.date = selectedDate.value;
+    }
+
     form.post('/izin-keluar', {
         preserveScroll: true,
         onSuccess: () => {
@@ -82,6 +125,7 @@ function submitForm() {
                 life: 4000,
             });
             form.reset('exit_time', 'return_time', 'reason');
+            selectedDate.value = getInitialDate();
             closeCreateModal();
             activeTab.value = 'my_permits';
         },
@@ -227,15 +271,13 @@ function handleSupervisorApproval() {
 
             <!-- Tombol Aksi Utama -->
             <div class="flex flex-wrap items-center gap-2 shrink-0">
-                <!-- Tombol Primer: Ajukan Izin Keluar -->
-                <button
-                    type="button"
-                    class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#005BAC] hover:bg-[#004785] active:bg-[#00386a] text-white font-bold text-xs sm:text-sm transition-all shadow-sm cursor-pointer"
+                <!-- Tombol Primer: Ajukan Izin Keluar (PrimeVue Button) -->
+                <Button
+                    label="Ajukan Izin Keluar"
+                    icon="pi pi-plus"
+                    size="small"
                     @click="openCreateModal"
-                >
-                    <i class="pi pi-plus text-xs" />
-                    <span>Ajukan Izin Keluar</span>
-                </button>
+                />
 
                 <!-- Tombol Navigasi Scanner Satpam (Jika Akun Satpam) -->
                 <Link
@@ -346,28 +388,25 @@ function handleSupervisorApproval() {
                         </div>
                     </div>
 
-                    <button
-                        type="button"
-                        class="inline-flex sm:hidden items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#005BAC] text-white font-bold text-xs shadow-xs cursor-pointer self-start"
+                    <Button
+                        label="Ajukan Izin Baru"
+                        icon="pi pi-plus"
+                        size="small"
+                        class="sm:hidden self-start"
                         @click="openCreateModal"
-                    >
-                        <i class="pi pi-plus text-xs" />
-                        <span>Ajukan Izin Baru</span>
-                    </button>
+                    />
                 </div>
 
                 <!-- Empty State -->
                 <div v-if="myExitPermits.length === 0" class="text-center py-12 text-slate-400 text-xs space-y-3">
                     <i class="pi pi-inbox text-3xl block text-slate-300" />
                     <p>Belum ada riwayat izin keluar kantor yang diajukan.</p>
-                    <button
-                        type="button"
-                        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#005BAC] text-white font-bold text-xs transition-colors cursor-pointer"
+                    <Button
+                        label="Mulai Buat Pengajuan Izin"
+                        icon="pi pi-plus"
+                        size="small"
                         @click="openCreateModal"
-                    >
-                        <i class="pi pi-plus text-xs" />
-                        <span>Mulai Buat Pengajuan Izin</span>
-                    </button>
+                    />
                 </div>
 
                 <div v-else class="space-y-4">
@@ -850,16 +889,17 @@ function handleSupervisorApproval() {
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <!-- Tipe Keluar Sementara -->
                             <label
-                                class="relative flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all select-none"
+                                for="type_keluar_tengah"
+                                class="flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all select-none"
                                 :class="form.type === 'keluar_tengah'
                                     ? 'bg-blue-50/70 border-[#005BAC] ring-1 ring-[#005BAC] shadow-xs'
                                     : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'"
                             >
-                                <input
+                                <RadioButton
                                     v-model="form.type"
-                                    type="radio"
+                                    inputId="type_keluar_tengah"
                                     value="keluar_tengah"
-                                    class="mt-0.5 text-[#005BAC] focus:ring-[#005BAC]"
+                                    class="mt-0.5"
                                 />
                                 <div class="space-y-0.5">
                                     <p class="text-xs sm:text-sm font-bold text-slate-800">
@@ -873,16 +913,17 @@ function handleSupervisorApproval() {
 
                             <!-- Tipe Datang Terlambat -->
                             <label
-                                class="relative flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all select-none"
+                                for="type_datang_terlambat"
+                                class="flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all select-none"
                                 :class="form.type === 'datang_terlambat'
                                     ? 'bg-blue-50/70 border-[#005BAC] ring-1 ring-[#005BAC] shadow-xs'
                                     : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'"
                             >
-                                <input
+                                <RadioButton
                                     v-model="form.type"
-                                    type="radio"
+                                    inputId="type_datang_terlambat"
                                     value="datang_terlambat"
-                                    class="mt-0.5 text-[#005BAC] focus:ring-[#005BAC]"
+                                    class="mt-0.5"
                                 />
                                 <div class="space-y-0.5">
                                     <p class="text-xs sm:text-sm font-bold text-slate-800">
@@ -896,62 +937,70 @@ function handleSupervisorApproval() {
                         </div>
                     </div>
 
-                    <!-- 4. Tanggal & Jam -->
+                    <!-- 4. Tanggal & Jam Menggunakan Komponen Template PrimeVue (/forms) -->
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
+                        <!-- Tanggal Izin (PrimeVue DatePicker dengan IftaLabel) -->
                         <div>
-                            <label class="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                                Tanggal Izin <span class="text-rose-500">*</span>
-                            </label>
-                            <input
-                                v-model="form.date"
-                                type="date"
-                                :min="todayDate"
-                                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC]"
-                                :class="{ 'border-rose-400': form.errors.date }"
-                            />
-                            <span v-if="form.errors.date" class="block text-[11px] text-rose-600 mt-1">{{ form.errors.date }}</span>
+                            <IftaLabel class="w-full">
+                                <DatePicker
+                                    id="date"
+                                    inputId="date"
+                                    v-model="selectedDate"
+                                    class="w-full"
+                                    dateFormat="dd/mm/yy"
+                                    :minDate="minDateObj"
+                                    showIcon
+                                    :invalid="!!form.errors.date"
+                                />
+                                <label for="date">Tanggal Izin *</label>
+                            </IftaLabel>
+                            <small v-if="form.errors.date" class="text-red-500 block mt-1">{{ form.errors.date }}</small>
                         </div>
 
                         <!-- Keluar Tengah (Jam Keluar) -->
                         <div v-if="form.type === 'keluar_tengah'">
-                            <label class="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                                Jam Rencana Keluar <span class="text-rose-500">*</span>
-                            </label>
-                            <input
-                                v-model="form.exit_time"
-                                type="time"
-                                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC]"
-                                :class="{ 'border-rose-400': form.errors.exit_time }"
-                            />
-                            <span v-if="form.errors.exit_time" class="block text-[11px] text-rose-600 mt-1">{{ form.errors.exit_time }}</span>
+                            <IftaLabel class="w-full">
+                                <InputText
+                                    id="exit_time"
+                                    v-model="form.exit_time"
+                                    type="time"
+                                    class="w-full"
+                                    :invalid="!!form.errors.exit_time"
+                                />
+                                <label for="exit_time">Jam Rencana Keluar *</label>
+                            </IftaLabel>
+                            <small v-if="form.errors.exit_time" class="text-red-500 block mt-1">{{ form.errors.exit_time }}</small>
                         </div>
 
                         <!-- Keluar Tengah (Jam Kembali) -->
                         <div v-if="form.type === 'keluar_tengah'">
-                            <label class="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                                Jam Rencana Kembali
-                            </label>
-                            <input
-                                v-model="form.return_time"
-                                type="time"
-                                :disabled="!form.is_returning"
-                                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC] disabled:bg-slate-100 disabled:text-slate-400"
-                                :class="{ 'border-rose-400': form.errors.return_time }"
-                            />
-                            <span v-if="form.errors.return_time" class="block text-[11px] text-rose-600 mt-1">{{ form.errors.return_time }}</span>
+                            <IftaLabel class="w-full">
+                                <InputText
+                                    id="return_time"
+                                    v-model="form.return_time"
+                                    type="time"
+                                    class="w-full"
+                                    :disabled="!form.is_returning"
+                                    :invalid="!!form.errors.return_time"
+                                />
+                                <label for="return_time">Jam Rencana Kembali</label>
+                            </IftaLabel>
+                            <small v-if="form.errors.return_time" class="text-red-500 block mt-1">{{ form.errors.return_time }}</small>
                         </div>
 
                         <!-- Datang Terlambat (Jam Rencana Tiba) -->
                         <div v-if="form.type === 'datang_terlambat'" class="sm:col-span-2">
-                            <label class="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                                Jam Rencana Tiba / Masuk Kerja <span class="text-rose-500">*</span>
-                            </label>
-                            <input
-                                v-model="form.return_time"
-                                type="time"
-                                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC]"
-                                :class="{ 'border-rose-400': form.errors.return_time }"
-                            />
+                            <IftaLabel class="w-full">
+                                <InputText
+                                    id="return_time_late"
+                                    v-model="form.return_time"
+                                    type="time"
+                                    class="w-full"
+                                    :invalid="!!form.errors.return_time"
+                                />
+                                <label for="return_time_late">Jam Rencana Tiba / Masuk Kerja *</label>
+                            </IftaLabel>
+                            <small v-if="form.errors.return_time" class="text-red-500 block mt-1">{{ form.errors.return_time }}</small>
                             <span class="text-[11px] text-slate-500 block mt-1">Perkiraan waktu tiba di pos satpam KFPB.</span>
                         </div>
                     </div>
@@ -963,53 +1012,53 @@ function handleSupervisorApproval() {
                             <span class="text-[11px] text-slate-500 block">Pilih "Tidak" jika Anda langsung pulang dan tidak kembali lagi.</span>
                         </div>
                         <div class="flex items-center gap-4">
-                            <label class="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                <input v-model="form.is_returning" type="radio" :value="true" class="text-[#005BAC] focus:ring-[#005BAC]" />
-                                <span>Ya, Kembali</span>
-                            </label>
-                            <label class="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                <input v-model="form.is_returning" type="radio" :value="false" class="text-[#005BAC] focus:ring-[#005BAC]" />
-                                <span>Tidak (Langsung Pulang)</span>
-                            </label>
+                            <div class="flex items-center gap-2">
+                                <RadioButton v-model="form.is_returning" inputId="returning_yes" :value="true" />
+                                <label for="returning_yes" class="text-xs font-semibold text-slate-700 cursor-pointer">Ya, Kembali</label>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <RadioButton v-model="form.is_returning" inputId="returning_no" :value="false" />
+                                <label for="returning_no" class="text-xs font-semibold text-slate-700 cursor-pointer">Tidak (Langsung Pulang)</label>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- 5. Alasan / Keperluan -->
-                    <div class="space-y-1.5">
-                        <label for="reason" class="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                            Alasan / Keperluan Izin Keluar <span class="text-rose-500">*</span>
-                        </label>
-                        <textarea
-                            id="reason"
-                            v-model="form.reason"
-                            rows="3"
-                            placeholder="Tuliskan alasan/keperluan izin keluar dengan jelas..."
-                            class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC] transition-all resize-y"
-                            :class="{ 'border-rose-400': form.errors.reason }"
-                        />
-                        <span v-if="form.errors.reason" class="block text-[11px] text-rose-600">{{ form.errors.reason }}</span>
+                    <!-- 5. Alasan / Keperluan (PrimeVue Textarea dengan IftaLabel) -->
+                    <div class="space-y-1">
+                        <IftaLabel class="w-full">
+                            <Textarea
+                                id="reason"
+                                v-model="form.reason"
+                                rows="3"
+                                class="w-full"
+                                :invalid="!!form.errors.reason"
+                                placeholder=" "
+                            />
+                            <label for="reason">Alasan / Keperluan Izin Keluar *</label>
+                        </IftaLabel>
+                        <small v-if="form.errors.reason" class="text-red-500 block mt-1">{{ form.errors.reason }}</small>
                     </div>
                 </form>
 
-                <!-- Footer Modal Form -->
+                <!-- Footer Modal Form (Menggunakan PrimeVue Button) -->
                 <div class="p-3.5 sm:p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2 shrink-0">
-                    <button
-                        type="button"
-                        class="px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
+                    <Button
+                        label="Batal"
+                        icon="pi pi-times"
+                        severity="secondary"
+                        outlined
+                        size="small"
                         @click="closeCreateModal"
-                    >
-                        Batal
-                    </button>
-                    <button
+                    />
+                    <Button
+                        label="Kirim Pengajuan ke Atasan"
+                        icon="pi pi-send"
                         type="submit"
                         form="exitPermitForm"
                         :disabled="form.processing"
-                        class="px-5 py-2.5 rounded-xl bg-[#005BAC] hover:bg-[#004785] active:bg-[#00386a] text-white font-bold text-xs transition-colors shadow-sm inline-flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        <i v-if="form.processing" class="pi pi-spin pi-spinner text-xs" />
-                        <i v-else class="pi pi-send text-xs" />
-                        <span>{{ form.processing ? 'Mengirim...' : 'Kirim Pengajuan ke Atasan' }}</span>
-                    </button>
+                        :loading="form.processing"
+                        size="small"
+                    />
                 </div>
             </div>
         </div>
@@ -1070,44 +1119,40 @@ function handleSupervisorApproval() {
                         </div>
                     </div>
 
-                    <!-- Input Catatan Atasan Opsional -->
+                    <!-- Input Catatan Atasan Opsional (PrimeVue IftaLabel & InputText) -->
                     <div>
-                        <label class="block text-xs font-bold text-slate-700 mb-1">
-                            Pesan / Catatan Atasan (Opsional)
-                        </label>
-                        <input
-                            v-model="approvalDialog.notes"
-                            type="text"
-                            placeholder="Contoh: Disetujui, segera kembali sebelum briefing sore."
-                            class="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC]"
-                        />
+                        <IftaLabel class="w-full">
+                            <InputText
+                                id="approval_notes"
+                                v-model="approvalDialog.notes"
+                                class="w-full text-xs"
+                                placeholder=" "
+                            />
+                            <label for="approval_notes">Pesan / Catatan Atasan (Opsional)</label>
+                        </IftaLabel>
                     </div>
                 </div>
 
-                <!-- Footer Aksi -->
+                <!-- Footer Aksi (PrimeVue Button) -->
                 <div class="p-3.5 sm:p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2 shrink-0">
-                    <button
-                        type="button"
-                        class="px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
+                    <Button
+                        label="Batal"
+                        icon="pi pi-times"
+                        severity="secondary"
+                        outlined
+                        size="small"
                         :disabled="approvalDialog.processing"
                         @click="closeApprovalModal"
-                    >
-                        Batal
-                    </button>
-                    <button
-                        type="button"
-                        class="px-4 py-2.5 rounded-xl text-white font-semibold text-xs transition-colors inline-flex items-center gap-1.5 shadow-sm cursor-pointer"
-                        :class="[
-                            approvalDialog.status === 1 ? 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800' : 'bg-rose-600 hover:bg-rose-700 active:bg-rose-800',
-                            approvalDialog.processing ? 'opacity-60 cursor-not-allowed' : ''
-                        ]"
+                    />
+                    <Button
+                        :label="approvalDialog.status === 1 ? 'Ya, Setujui Izin' : 'Ya, Tolak Izin'"
+                        :icon="approvalDialog.status === 1 ? 'pi pi-check' : 'pi pi-times'"
+                        :severity="approvalDialog.status === 1 ? 'success' : 'danger'"
+                        size="small"
                         :disabled="approvalDialog.processing"
+                        :loading="approvalDialog.processing"
                         @click="handleSupervisorApproval"
-                    >
-                        <i v-if="approvalDialog.processing" class="pi pi-spin pi-spinner text-xs" />
-                        <i v-else :class="approvalDialog.status === 1 ? 'pi pi-check text-xs' : 'pi pi-times text-xs'" />
-                        <span>{{ approvalDialog.status === 1 ? 'Ya, Setujui Izin' : 'Ya, Tolak Izin' }}</span>
-                    </button>
+                    />
                 </div>
             </div>
         </div>
