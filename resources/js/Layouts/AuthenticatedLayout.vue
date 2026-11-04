@@ -205,7 +205,9 @@ const searchQuery = ref('');
 const searchMenus = computed(() => {
     const list = [
         { label: 'Dashboard Presensi & Eksekutif', url: '/', category: 'Utama', icon: 'pi pi-home' },
-        { label: 'Direktori Induk Pegawai', url: '/datatable', category: 'Kepegawaian', icon: 'pi pi-users' },
+        { label: 'Daftar Pegawai', url: '/datatable', category: 'Kepegawaian', icon: 'pi pi-users' },
+        { label: 'Rekapitulasi', url: '/datatable', category: 'Kepegawaian', icon: 'pi pi-table' },
+        { label: 'Statistik', url: '/charts', category: 'Kepegawaian', icon: 'pi pi-chart-bar' },
         { label: 'Struktur Organisasi & Jabatan', url: '/components', category: 'Kepegawaian', icon: 'pi pi-sitemap' },
         { label: 'Rekapitulasi Presensi & Kehadiran', url: '/charts', category: 'Operasional', icon: 'pi pi-calendar-check' },
         { label: 'Verifikasi & Approval Lembur (SPL)', url: '/forms', category: 'Operasional', icon: 'pi pi-clock' },
@@ -373,6 +375,169 @@ const isCurrentUrl = (path) => {
                         </ul>
                     </div>
 
+                    <!-- Section: MASTER DATA -->
+                    <div>
+                        <div class="px-3 mb-1.5 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
+                            Master Data
+                        </div>
+                        <div class="space-y-1">
+                            <button
+                                type="button"
+                                class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors duration-150 font-medium cursor-pointer"
+                                @click="toggleGroup('master-data')"
+                            >
+                                <div class="flex items-center gap-3">
+                                    <i class="pi pi-database text-base text-slate-400" />
+                                    <span>Master Data</span>
+                                </div>
+                                <i
+                                    :class="[
+                                        'pi pi-chevron-right text-xs text-slate-400 transition-transform duration-200',
+                                        openGroups['master-data'] ? 'rotate-90' : '',
+                                    ]"
+                                />
+                            </button>
+
+                            <ul v-show="openGroups['master-data']" class="pl-8 pr-1 space-y-1 pt-0.5">
+                                <li>
+                                    <Link
+                                        href="/components"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Data Jabatan</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/components"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Data Bagian</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/components"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Data Agama</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/components"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Data Struktur</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/components"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Data Shift</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/components"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Data Libur</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/components"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Data Cuti</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/components"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Status Pegawai</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/components"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Data Bank</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/components"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Data Grading</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/components"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Jabatan Struktural</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/components"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Jabatan Fungsional</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/components"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Data Eselon</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/components"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Data Berkas</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/components"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Data Payroll</span>
+                                    </Link>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+
                     <!-- Section: KEPEGAWAIAN (HR CORE) -->
                     <div>
                         <div class="px-3 mb-1.5 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
@@ -408,52 +573,69 @@ const isCurrentUrl = (path) => {
                                         ]"
                                     >
                                         <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Direktori Induk Pegawai</span>
+                                        <span>Daftar Pegawai</span>
                                     </Link>
                                 </li>
                                 <li>
                                     <Link
-                                        href="/components"
+                                        href="/datatable"
                                         :class="[
                                             'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
-                                            isCurrentUrl('/components')
+                                            isCurrentUrl('/datatable')
                                                 ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
                                                 : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
                                         ]"
                                     >
                                         <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Struktur & Jabatan</span>
+                                        <span>Daftar Gaji</span>
                                     </Link>
                                 </li>
                                 <li>
                                     <Link
-                                        href="/components"
+                                        href="/datatable"
                                         :class="[
-                                            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/datatable')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
                                         ]"
                                     >
                                         <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Portofolio & Riwayat SK</span>
+                                        <span>Rekapitulasi</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/datatable"
+                                        :class="[
+                                            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/datatable')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Statistik</span>
                                     </Link>
                                 </li>
                             </ul>
                         </div>
                     </div>
 
-                    <!-- Section: OPERASIONAL & PERSETUJUAN -->
+                    <!-- Section: OPERASIONAL -->
                     <div>
                         <div class="px-3 mb-1.5 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
-                            Operasional & Approval
+                            Operasional
                         </div>
                         <div class="space-y-1">
                             <button
                                 type="button"
                                 class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors duration-150 font-medium cursor-pointer"
-                                @click="toggleGroup('operasional')"
+                                @click="toggleGroup('absensi')"
                             >
                                 <div class="flex items-center gap-3">
-                                    <i class="pi pi-check-circle text-base text-slate-400" />
-                                    <span>Pusat Verifikasi</span>
+                                    <i class="pi pi-calendar-clock text-base text-slate-400" />
+                                    <span>Absensi</span>
                                 </div>
                                 <div class="flex items-center gap-1.5">
                                     <span class="bg-rose-100 text-rose-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
@@ -462,44 +644,80 @@ const isCurrentUrl = (path) => {
                                     <i
                                         :class="[
                                             'pi pi-chevron-right text-xs text-slate-400 transition-transform duration-200',
-                                            openGroups.operasional ? 'rotate-90' : '',
+                                            openGroups.absensi ? 'rotate-90' : '',
                                         ]"
                                     />
                                 </div>
                             </button>
 
-                            <ul v-show="openGroups.operasional" class="pl-8 pr-1 space-y-1 pt-0.5">
+                            <ul v-show="openGroups.absensi" class="pl-8 pr-1 space-y-1 pt-0.5">
                                 <li>
                                     <Link
-                                        href="/charts"
+                                        href="/datatable"
                                         :class="[
                                             'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
-                                            isCurrentUrl('/charts')
+                                            isCurrentUrl('/datatable')
                                                 ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
                                                 : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
                                         ]"
                                     >
                                         <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Rekapitulasi Presensi</span>
+                                        <span>Data Absensi</span>
                                     </Link>
                                 </li>
                                 <li>
                                     <Link
-                                        href="/forms"
+                                        href="/datatable"
                                         :class="[
                                             'flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors',
-                                            isCurrentUrl('/forms')
+                                            isCurrentUrl('/datatable')
                                                 ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
                                                 : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
                                         ]"
                                     >
                                         <div class="flex items-center gap-2.5">
                                             <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                            <span>Persetujuan Lembur (SPL)</span>
+                                            <span>GPS Monitor</span>
                                         </div>
                                         <span class="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.2 rounded-full">12</span>
                                     </Link>
                                 </li>
+                                <li>
+                                    <Link
+                                        href="/forms"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-slate-600 hover:bg-slate-100/80 hover:text-slate-900"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Tarik Absen Wajah</span>
+                                    </Link>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <div class="space-y-1">
+                            <button
+                                type="button"
+                                class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors duration-150 font-medium cursor-pointer"
+                                @click="toggleGroup('izin')"
+                            >
+                                <div class="flex items-center gap-3">
+                                    <i class="pi pi-user-minus text-base text-slate-400" />
+                                    <span>Izin</span>
+                                </div>
+                                <div class="flex items-center gap-1.5">
+                                    <span class="bg-rose-100 text-rose-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                                        17
+                                    </span>
+                                    <i
+                                        :class="[
+                                            'pi pi-chevron-right text-xs text-slate-400 transition-transform duration-200',
+                                            openGroups.izin ? 'rotate-90' : '',
+                                        ]"
+                                    />
+                                </div>
+                            </button>
+
+                            <ul v-show="openGroups.izin" class="pl-8 pr-1 space-y-1 pt-0.5">
                                 <li>
                                     <Link
                                         href="/admin/izin"
@@ -516,13 +734,128 @@ const isCurrentUrl = (path) => {
                                         </div>
                                     </Link>
                                 </li>
+                            </ul>
+                        </div>
+                        
+                        <div class="space-y-1">
+                            <button
+                                type="button"
+                                class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors duration-150 font-medium cursor-pointer"
+                                @click="toggleGroup('lembur')"
+                            >
+                                <div class="flex items-center gap-3">
+                                    <i class="pi pi-clock text-base text-slate-400" />
+                                    <span>Lembur</span>
+                                </div>
+                                <div class="flex items-center gap-1.5">
+                                    <span class="bg-rose-100 text-rose-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                                        17
+                                    </span>
+                                    <i
+                                        :class="[
+                                            'pi pi-chevron-right text-xs text-slate-400 transition-transform duration-200',
+                                            openGroups.lembur ? 'rotate-90' : '',
+                                        ]"
+                                    />
+                                </div>
+                            </button>
+
+                            <ul v-show="openGroups.lembur" class="pl-8 pr-1 space-y-1 pt-0.5">
                                 <li>
                                     <Link
-                                        href="/forms"
-                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-slate-600 hover:bg-slate-100/80 hover:text-slate-900"
+                                        href="/datatable"
+                                        :class="[
+                                            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/datatable')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
                                     >
                                         <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Rekap Izin Keluar Kantor</span>
+                                        <span>Data Lembur</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/datatable"
+                                        :class="[
+                                            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/datatable')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Detail Data Lembur</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/datatable"
+                                        :class="[
+                                            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/datatable')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Data Pengajuan Lembur</span>
+                                    </Link>
+                                </li>
+                            </ul>
+                        </div>
+                        
+                        <div class="space-y-1">
+                            <button
+                                type="button"
+                                class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors duration-150 font-medium cursor-pointer"
+                                @click="toggleGroup('rekapitulasi')"
+                            >
+                                <div class="flex items-center gap-3">
+                                    <i class="pi pi-chart-bar text-base text-slate-400" />
+                                    <span>Rekapitulasi</span>
+                                </div>
+                                <div class="flex items-center gap-1.5">
+                                    <span class="bg-rose-100 text-rose-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                                        17
+                                    </span>
+                                    <i
+                                        :class="[
+                                            'pi pi-chevron-right text-xs text-slate-400 transition-transform duration-200',
+                                            openGroups.rekapitulasi ? 'rotate-90' : '',
+                                        ]"
+                                    />
+                                </div>
+                            </button>
+
+                            <ul v-show="openGroups.rekapitulasi" class="pl-8 pr-1 space-y-1 pt-0.5">
+                                <li>
+                                    <Link
+                                        href="/charts"
+                                        :class="[
+                                            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/charts')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Laporan Absensi</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/charts"
+                                        :class="[
+                                            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/charts')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Laporan Izin Keluar</span>
                                     </Link>
                                 </li>
                             </ul>
@@ -559,7 +892,7 @@ const isCurrentUrl = (path) => {
                                         class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
                                     >
                                         <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Struktur Komponen Gaji</span>
+                                        <span>Gaji Pokok</span>
                                     </Link>
                                 </li>
                                 <li>
@@ -568,7 +901,34 @@ const isCurrentUrl = (path) => {
                                         class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
                                     >
                                         <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Laporan Slip Gaji Bulanan</span>
+                                        <span>Lembur</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/forms"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Potongan</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/datatable"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Pajak</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/datatable"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Proses Payroll</span>
                                     </Link>
                                 </li>
                             </ul>
