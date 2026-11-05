@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Employee;
 use App\Models\ExitPermit;
+use App\Models\OrganizationStructure;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -24,22 +25,23 @@ class ExitPermitController extends Controller
             return null;
         }
 
-        // 1. Coba ambil dari tabel relasi struktur legacy (sql_sdm.tbl_struktur / tbl_struktur)
+        // 1. Ambil dari hierarki struktur organisasi (OrganizationStructure)
         try {
-            $row = DB::table('sql_sdm.tbl_struktur as ts')
-                ->join('esdmv2.employees as p', 'ts.id_jab_b', '=', 'p.nip')
-                ->where('ts.id_jab_a', $nip)
-                ->select('p.nip', 'p.full_name as name')
-                ->first();
-
-            if ($row) {
-                return [
-                    'nip'  => $row->nip,
-                    'name' => $row->name,
-                ];
+            $node = OrganizationStructure::findByNip($nip);
+            if ($node && $node->parent) {
+                $supervisorNip = $node->getSupervisorNip();
+                if ($supervisorNip) {
+                    $lead = Employee::where('nip', $supervisorNip)->first();
+                    if ($lead) {
+                        return [
+                            'nip'  => $lead->nip,
+                            'name' => $lead->full_name,
+                        ];
+                    }
+                }
             }
         } catch (\Throwable $e) {
-            // Fallback jika database sql_sdm tidak tersedia
+            // Fallback jika terjadi kendala data
         }
 
         // 2. Fallback: Cari Manager / Supervisor pada divisi yang sama
@@ -80,10 +82,8 @@ class ExitPermitController extends Controller
         }
 
         try {
-            return DB::table('sql_sdm.tbl_struktur')
-                ->where('id_jab_b', $supervisorNip)
-                ->pluck('id_jab_a')
-                ->toArray();
+            $node = OrganizationStructure::findByNip($supervisorNip);
+            return $node ? $node->getSubordinateNips() : [];
         } catch (\Throwable $e) {
             return [];
         }

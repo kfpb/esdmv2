@@ -66,13 +66,11 @@ class User extends Authenticatable
             return true;
         }
 
-        // Cek apakah NIP ini memiliki bawahan di tabel struktur
+        // Cek apakah NIP ini memiliki bawahan di struktur organisasi (OrganizationStructure)
         if (! empty($this->employee_nip)) {
             try {
-                $hasSubordinates = \Illuminate\Support\Facades\DB::table('sql_sdm.tbl_struktur')
-                    ->where('id_jab_b', $this->employee_nip)
-                    ->exists();
-                if ($hasSubordinates) {
+                $node = OrganizationStructure::findByNip($this->employee_nip);
+                if ($node && $node->children()->exists()) {
                     return true;
                 }
             } catch (\Throwable $e) {

@@ -359,6 +359,48 @@ class MigrateLegacyDataCommand extends Command
                     }
                     break;
 
+                // Struktur Organisasi Hierarki (tbl_struktur -> organization_structures)
+                case 'tbl_struktur':
+                    if (isset($values[0], $values[1], $values[2])) {
+                        $idst = (int) $values[0];
+                        $nipA = trim((string) $values[1]);
+                        $nipB = trim((string) $values[2]);
+
+                        $emp = DB::table('employees')->where('nip', $nipA)->first();
+                        $posName = 'PELAKSANA';
+                        if ($emp && $emp->position_id) {
+                            $pos = DB::table('positions')->where('id', $emp->position_id)->first();
+                            if ($pos) {
+                                $posName = $pos->name;
+                            }
+                        }
+                        $divName = 'PLANT BANJARAN';
+                        if ($emp && $emp->division_id) {
+                            $div = DB::table('divisions')->where('id', $emp->division_id)->first();
+                            if ($div) {
+                                $divName = $div->name;
+                            }
+                        }
+
+                        $title = "[{$nipA}] {$posName} - {$divName}";
+                        if (strlen($title) > 150) {
+                            $title = substr($title, 0, 147) . '...';
+                        }
+
+                        DB::table('organization_structures')->updateOrInsert(
+                            ['id' => $idst],
+                            [
+                                'id'          => $idst,
+                                'division_id' => $emp?->division_id,
+                                'position_id' => $emp?->position_id,
+                                'title'       => $title,
+                                'created_at'  => now(),
+                                'updated_at'  => now(),
+                            ]
+                        );
+                    }
+                    break;
+
                 default:
                     break;
             }
