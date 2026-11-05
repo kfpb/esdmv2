@@ -63,6 +63,8 @@ Route::middleware('auth')->group(function () {
     Route::prefix('admin')->name('admin.')->group(function () {
         Route::prefix('master_data')->name('master_data.')->group(function () {
             Route::resource('division', \App\Http\Controllers\MasterData\DivisionController::class)->except(['create', 'edit', 'show']);
+
+            Route::resource('sub_division', \App\Http\Controllers\MasterData\SubDivisionController::class)->except(['create', 'edit', 'show']);
         });
     });
 });
