@@ -4,7 +4,15 @@ import { Head, Link, router } from '@inertiajs/vue3';
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import Toast from 'primevue/toast';
 import { useToast } from 'primevue/usetoast';
+import Card from 'primevue/card';
+import DataTable from 'primevue/datatable';
+import Column from 'primevue/column';
+import Tag from 'primevue/tag';
+import InputText from 'primevue/inputtext';
+import Select from 'primevue/select';
+import Button from 'primevue/button';
 import { generateQrSvg } from '@/Utils/qrcode';
+import { exportTableToPdf } from '@/Utils/exportPdf';
 
 defineOptions({ layout: AuthenticatedLayout });
 
@@ -40,7 +48,7 @@ const props = defineProps({
 
 const toast = useToast();
 
-// State Filter Form
+// State Filter Form Backend
 const filterForm = reactive({
     bulan: props.filters.bulan || 'all',
     tahun: props.filters.tahun || new Date().getFullYear().toString(),
@@ -48,6 +56,10 @@ const filterForm = reactive({
     q: props.filters.q || '',
     per_page: props.filters.per_page || 25,
 });
+
+// State Pencarian Instan dan Seleksi Baris
+const instantSearch = ref('');
+const selectedPermits = ref([]);
 
 const bulanList = [
     { value: 'all', label: '-- Semua Bulan --' },
@@ -65,12 +77,41 @@ const bulanList = [
     { value: '12', label: 'Desember' },
 ];
 
+const statusOptions = [
+    { value: 'all', label: '-- Semua Status --' },
+    { value: '0', label: 'Menunggu Persetujuan' },
+    { value: '1', label: 'Disetujui (Approved)' },
+    { value: '2', label: 'Ditolak (Rejected)' },
+];
+
+const tahunOptions = computed(() => [
+    { value: 'all', label: '-- Semua Tahun --' },
+    ...props.years.map((y) => ({ value: y.toString(), label: y.toString() })),
+]);
+
+// Filter instan client-side pada tabel
+const filteredPermits = computed(() => {
+    const list = props.permits.data || [];
+    if (!instantSearch.value.trim()) return list;
+    const q = instantSearch.value.toLowerCase().trim();
+    return list.filter((item) => {
+        return (
+            (item.kode_izin && item.kode_izin.toLowerCase().includes(q)) ||
+            (item.nip && item.nip.toLowerCase().includes(q)) ||
+            (item.nama_pegawai && item.nama_pegawai.toLowerCase().includes(q)) ||
+            (item.bagian && item.bagian.toLowerCase().includes(q)) ||
+            (item.jabatan && item.jabatan.toLowerCase().includes(q)) ||
+            (item.reason && item.reason.toLowerCase().includes(q))
+        );
+    });
+});
+
 function applyFilter() {
     router.get('/admin/izin-keluar', {
         bulan: filterForm.bulan,
         tahun: filterForm.tahun,
         status: filterForm.status,
-        q: filterForm.q,
+        q: filterForm.q || instantSearch.value,
         per_page: filterForm.per_page,
     }, {
         preserveState: true,
@@ -84,7 +125,71 @@ function resetFilter() {
     filterForm.status = 'all';
     filterForm.q = '';
     filterForm.per_page = 25;
+    instantSearch.value = '';
     applyFilter();
+}
+
+function statusSeverity(status) {
+    switch (parseInt(status)) {
+        case 0: return 'warn';
+        case 1: return 'success';
+        case 2: return 'danger';
+        case 3: return 'info';
+        case 4: return 'secondary';
+        default: return 'secondary';
+    }
+}
+
+function statusLabel(status) {
+    switch (parseInt(status)) {
+        case 0: return 'Menunggu';
+        case 1: return 'Disetujui';
+        case 2: return 'Ditolak';
+        case 3: return 'Sudah Keluar';
+        case 4: return 'Selesai';
+        default: return '-';
+    }
+}
+
+function handleExportPdf() {
+    const dataToExport = filteredPermits.value;
+    if (!dataToExport || dataToExport.length === 0) {
+        alert('Tidak ada data izin keluar yang dapat diekspor.');
+        return;
+    }
+
+    const bulanObj = bulanList.find((b) => b.value === filterForm.bulan);
+    const bulanLabel = bulanObj ? bulanObj.label : 'Semua Bulan';
+    const tahunLabel = filterForm.tahun === 'all' ? 'Semua Tahun' : filterForm.tahun;
+    const statusObj = statusOptions.find((s) => s.value === filterForm.status);
+    const statusLabelText = statusObj ? statusObj.label : 'Semua Status';
+
+    exportTableToPdf({
+        title: 'REKAPITULASI IZIN KELUAR KANTOR PEGAWAI',
+        subtitle: 'Sistem Elektronik Sumber Daya Manusia (eSDM) - Plant Banjaran',
+        documentNo: 'KFPB-SDM-IKK-01',
+        metaInfo: [
+            { label: 'Bulan', value: bulanLabel },
+            { label: 'Tahun', value: tahunLabel },
+            { label: 'Status', value: statusLabelText },
+            { label: 'Kata Kunci', value: instantSearch.value || filterForm.q || 'Semua Data' },
+        ],
+        columns: [
+            { header: 'No', width: '35px', align: 'center', render: (row, idx) => idx + 1 },
+            { header: 'Kode Izin', field: 'kode_izin', width: '85px' },
+            { header: 'NIP', field: 'nip', width: '75px' },
+            { header: 'Nama Pegawai', field: 'nama_pegawai' },
+            { header: 'Bagian', field: 'bagian' },
+            { header: 'Tanggal', field: 'date', width: '75px', align: 'center' },
+            {
+                header: 'Waktu Izin',
+                render: (row) => row.exit_time === '00:00' ? `Terlambat (Est: ${row.return_time || '-'})` : `${row.exit_time} s/d ${row.return_time || 'Pulang'}`,
+            },
+            { header: 'Keperluan', field: 'reason' },
+            { header: 'Status', width: '80px', align: 'center', render: (row) => statusLabel(row.approval_status) },
+        ],
+        data: dataToExport,
+    });
 }
 
 // Modal Konfirmasi Persetujuan / Penolakan
@@ -197,7 +302,7 @@ onUnmounted(() => {
                     <span class="text-slate-800 font-semibold">Rekap Izin Keluar Kantor</span>
                 </div>
                 <h1 class="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-                    Pusat Verifikasi & Rekap Izin Keluar Kantor
+                    Pusat Verifikasi &amp; Rekap Izin Keluar Kantor
                 </h1>
                 <p class="text-xs sm:text-sm text-slate-500">
                     Persetujuan permohonan izin keluar sementara maupun izin datang terlambat pegawai Kimia Farma Plant Banjaran.
@@ -205,9 +310,17 @@ onUnmounted(() => {
             </div>
 
             <div class="flex items-center gap-2 shrink-0 self-start sm:self-auto">
+                <Button
+                    label="Export PDF"
+                    icon="pi pi-file-pdf"
+                    severity="danger"
+                    outlined
+                    size="small"
+                    @click="handleExportPdf"
+                />
                 <Link
                     href="/izin-keluar"
-                    class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-xs sm:text-sm transition-colors shadow-xs"
+                    class="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-xs sm:text-sm transition-colors shadow-2xs"
                 >
                     <i class="pi pi-external-link text-xs" />
                     <span>Layanan Mandiri Pegawai</span>
@@ -215,7 +328,7 @@ onUnmounted(() => {
             </div>
         </div>
 
-        <!-- ================= 4 KARTU STATISTIK RINGKAS (TANPA GRAFIK LEBAY) ================= -->
+        <!-- ================= 4 KARTU STATISTIK RINGKAS ================= -->
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
             <!-- Total Permohonan -->
             <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-sm flex items-center justify-between">
@@ -266,283 +379,256 @@ onUnmounted(() => {
             </div>
         </div>
 
-        <!-- ================= PANEL FILTER PENCARIAN ================= -->
-        <div class="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-sm">
-            <form @submit.prevent="applyFilter" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 items-end">
-                <!-- Bulan -->
-                <div>
-                    <label class="block text-[11px] font-bold text-slate-600 mb-1">Bulan</label>
-                    <select
-                        v-model="filterForm.bulan"
-                        class="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC]"
-                    >
-                        <option v-for="b in bulanList" :key="b.value" :value="b.value">
-                            {{ b.label }}
-                        </option>
-                    </select>
-                </div>
+        <!-- ================= CARD DATATABLE STANDAR /DATATABLE ================= -->
+        <Card class="shadow-sm border border-slate-200/80 rounded-2xl overflow-hidden">
+            <!-- Toolbar Header -->
+            <template #header>
+                <div class="flex flex-col gap-4 px-6 pt-5 pb-4 border-b border-slate-200/80 bg-slate-50/50">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <div class="flex items-center gap-2">
+                            <i class="pi pi-table text-[#005BAC] text-sm" />
+                            <span class="text-sm font-bold text-slate-800 uppercase tracking-wider">
+                                Rekap Izin Keluar Kantor
+                            </span>
+                            <span class="px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-700 text-xs font-mono font-bold">
+                                {{ permits.total?.toLocaleString('id-ID') || filteredPermits.length }} Pengajuan
+                            </span>
+                        </div>
 
-                <!-- Tahun -->
-                <div>
-                    <label class="block text-[11px] font-bold text-slate-600 mb-1">Tahun</label>
-                    <select
-                        v-model="filterForm.tahun"
-                        class="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC]"
-                    >
-                        <option value="all">-- Semua Tahun --</option>
-                        <option v-for="y in years" :key="y" :value="y.toString()">
-                            {{ y }}
-                        </option>
-                    </select>
-                </div>
+                        <!-- Export PDF & Selection Summary -->
+                        <div class="flex items-center gap-2">
+                            <span v-if="selectedPermits.length" class="text-xs text-slate-600 font-medium">
+                                {{ selectedPermits.length }} terpilih
+                            </span>
+                            <Button
+                                label="Export PDF"
+                                icon="pi pi-file-pdf"
+                                severity="danger"
+                                outlined
+                                size="small"
+                                @click="handleExportPdf"
+                            />
+                        </div>
+                    </div>
 
-                <!-- Status Persetujuan -->
-                <div>
-                    <label class="block text-[11px] font-bold text-slate-600 mb-1">Status Persetujuan</label>
-                    <select
-                        v-model="filterForm.status"
-                        class="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC]"
-                    >
-                        <option value="all">-- Semua Status --</option>
-                        <option value="0">Menunggu Persetujuan</option>
-                        <option value="1">Disetujui (Approved)</option>
-                        <option value="2">Ditolak (Rejected)</option>
-                    </select>
-                </div>
+                    <!-- Filter Controls Grid -->
+                    <div class="flex flex-wrap items-center gap-2.5">
+                        <InputText
+                            v-model="instantSearch"
+                            placeholder="Cari kode, NIP, nama..."
+                            class="w-full sm:w-60"
+                        >
+                            <template #prefix><i class="pi pi-search text-slate-400" /></template>
+                        </InputText>
 
-                <!-- Pencarian NIP / Nama -->
-                <div>
-                    <label class="block text-[11px] font-bold text-slate-600 mb-1">NIP / Nama Pegawai</label>
-                    <div class="relative">
-                        <input
-                            v-model="filterForm.q"
-                            type="text"
-                            placeholder="Cari NIP atau nama..."
-                            class="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-300 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC]"
+                        <Select
+                            v-model="filterForm.status"
+                            :options="statusOptions"
+                            optionLabel="label"
+                            optionValue="value"
+                            placeholder="Pilih Status"
+                            class="w-full sm:w-48"
+                            @change="applyFilter"
                         />
-                        <i class="pi pi-search absolute left-2.5 top-2.5 text-slate-400 text-xs" />
+
+                        <Select
+                            v-model="filterForm.bulan"
+                            :options="bulanList"
+                            optionLabel="label"
+                            optionValue="value"
+                            placeholder="Pilih Bulan"
+                            class="w-full sm:w-40"
+                            @change="applyFilter"
+                        />
+
+                        <Select
+                            v-model="filterForm.tahun"
+                            :options="tahunOptions"
+                            optionLabel="label"
+                            optionValue="value"
+                            placeholder="Pilih Tahun"
+                            class="w-full sm:w-36"
+                            @change="applyFilter"
+                        />
+
+                        <Button
+                            label="Filter"
+                            icon="pi pi-filter"
+                            size="small"
+                            @click="applyFilter"
+                        />
+                        <Button
+                            icon="pi pi-refresh"
+                            severity="secondary"
+                            outlined
+                            size="small"
+                            title="Reset Filter"
+                            @click="resetFilter"
+                        />
                     </div>
                 </div>
+            </template>
 
-                <!-- Tombol Filter & Reset -->
-                <div class="flex items-center gap-2">
-                    <button
-                        type="submit"
-                        class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#005BAC] text-white hover:bg-[#004785] font-semibold text-xs shadow-sm transition-colors"
-                    >
-                        <i class="pi pi-filter text-[11px]" />
-                        <span>Filter</span>
-                    </button>
-                    <button
-                        type="button"
-                        class="px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-xs transition-colors"
-                        title="Reset Filter"
-                        @click="resetFilter"
-                    >
-                        <i class="pi pi-refresh text-[11px]" />
-                    </button>
-                </div>
-            </form>
-        </div>
-
-        <!-- ================= TABEL DATA REKAPITULASI ================= -->
-        <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs border-collapse">
-                    <thead>
-                        <tr class="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-bold tracking-wider uppercase text-[11px]">
-                            <th class="py-3 px-3.5 text-center w-12">No</th>
-                            <th class="py-3 px-3.5">Kode Izin</th>
-                            <th class="py-3 px-3.5">Pegawai & Unit</th>
-                            <th class="py-3 px-3.5">Tanggal</th>
-                            <th class="py-3 px-3.5">Waktu Izin</th>
-                            <th class="py-3 px-3.5 max-w-xs">Keperluan / Alasan</th>
-                            <th class="py-3 px-3.5 text-center">Status</th>
-                            <th class="py-3 px-3.5 text-center">Diajukan</th>
-                            <th class="py-3 px-3.5 text-center w-36">Aksi Persetujuan</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100 text-slate-700">
-                        <tr
-                            v-for="(item, index) in permits.data"
-                            :key="item.id"
-                            class="hover:bg-slate-50/60 transition-colors"
-                        >
-                            <!-- No -->
-                            <td class="py-3 px-3.5 text-center text-slate-400 font-mono text-[11px]">
+            <!-- Datatable Content -->
+            <template #content>
+                <DataTable
+                    v-model:selection="selectedPermits"
+                    :value="filteredPermits"
+                    dataKey="id"
+                    paginator
+                    :rows="10"
+                    :rowsPerPageOptions="[10, 25, 50, 100]"
+                    sortMode="multiple"
+                    removableSort
+                    stripedRows
+                    tableStyle="min-width: 65rem"
+                >
+                    <Column selectionMode="multiple" headerStyle="width: 3rem" />
+                    <Column field="id" header="No" sortable style="width: 4rem" class="text-center">
+                        <template #body="{ index }">
+                            <span class="font-mono text-slate-400 text-xs">
                                 {{ (permits.current_page - 1) * permits.per_page + index + 1 }}
-                            </td>
-
-                            <!-- Kode Izin -->
-                            <td class="py-3 px-3.5 whitespace-nowrap">
-                                <span class="font-mono font-bold text-slate-800 text-[11px] block">
-                                    {{ item.kode_izin }}
+                            </span>
+                        </template>
+                    </Column>
+                    <Column field="kode_izin" header="Kode Izin" sortable style="width: 8rem">
+                        <template #body="{ data }">
+                            <span class="font-mono font-bold text-slate-800 text-xs block">
+                                {{ data.kode_izin }}
+                            </span>
+                        </template>
+                    </Column>
+                    <Column field="nama_pegawai" header="Pegawai &amp; Unit" sortable>
+                        <template #body="{ data }">
+                            <div class="font-bold text-slate-800">
+                                {{ data.nama_pegawai }}
+                            </div>
+                            <div class="text-[11px] text-slate-500 font-mono flex items-center gap-1.5 mt-0.5">
+                                <span class="bg-slate-100 px-1 py-0.5 rounded text-[10px] text-slate-600 font-semibold">{{ data.nip }}</span>
+                                <span>&bull;</span>
+                                <span class="truncate max-w-[150px]">{{ data.bagian }}</span>
+                            </div>
+                        </template>
+                    </Column>
+                    <Column field="date" header="Tanggal" sortable style="width: 7.5rem">
+                        <template #body="{ data }">
+                            <span class="font-mono text-slate-700 whitespace-nowrap font-medium text-xs">
+                                {{ data.date }}
+                            </span>
+                        </template>
+                    </Column>
+                    <Column field="exit_time" header="Waktu Izin" sortable style="width: 9.5rem">
+                        <template #body="{ data }">
+                            <div v-if="data.exit_time === '00:00'" class="space-y-0.5">
+                                <span class="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                    <i class="pi pi-hourglass text-[10px]" />
+                                    <span>Datang Terlambat</span>
                                 </span>
-                            </td>
-
-                            <!-- Pegawai & Unit -->
-                            <td class="py-3 px-3.5">
-                                <div class="font-bold text-slate-800">
-                                    {{ item.nama_pegawai }}
+                                <div class="text-[10px] text-slate-500 font-mono">
+                                    Est. Tiba: <strong class="text-slate-700">{{ data.return_time || '-' }}</strong>
                                 </div>
-                                <div class="text-[11px] text-slate-500 font-mono flex items-center gap-1.5 mt-0.5">
-                                    <span class="bg-slate-100 px-1 py-0.5 rounded text-[10px] text-slate-600 font-semibold">{{ item.nip }}</span>
-                                    <span>•</span>
-                                    <span class="truncate max-w-[150px]">{{ item.bagian }}</span>
+                            </div>
+                            <div v-else class="space-y-0.5">
+                                <div class="font-mono text-xs font-semibold text-slate-800 flex items-center gap-1">
+                                    <span>{{ data.exit_time }}</span>
+                                    <i class="pi pi-arrow-right text-[9px] text-slate-400" />
+                                    <span v-if="data.return_time">{{ data.return_time }}</span>
+                                    <span v-else class="text-[11px] text-rose-600 font-normal italic">Pulang</span>
                                 </div>
-                            </td>
-
-                            <!-- Tanggal -->
-                            <td class="py-3 px-3.5 font-mono text-slate-700 whitespace-nowrap font-medium">
-                                {{ item.date }}
-                            </td>
-
-                            <!-- Waktu Izin -->
-                            <td class="py-3 px-3.5 whitespace-nowrap">
-                                <div v-if="item.exit_time === '00:00'" class="space-y-0.5">
-                                    <span class="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                                        <i class="pi pi-hourglass text-[10px]" />
-                                        <span>Datang Terlambat</span>
-                                    </span>
-                                    <div class="text-[10px] text-slate-500 font-mono">
-                                        Est. Tiba: <strong class="text-slate-700">{{ item.return_time || '-' }}</strong>
-                                    </div>
+                                <div class="text-[10px] text-slate-400">
+                                    {{ data.return_time ? 'Izin Sementara' : 'Izin Langsung Pulang' }}
                                 </div>
-                                <div v-else class="space-y-0.5">
-                                    <div class="font-mono text-xs font-semibold text-slate-800 flex items-center gap-1">
-                                        <span>{{ item.exit_time }}</span>
-                                        <i class="pi pi-arrow-right text-[9px] text-slate-400" />
-                                        <span v-if="item.return_time">{{ item.return_time }}</span>
-                                        <span v-else class="text-[11px] text-rose-600 font-normal italic">Pulang</span>
-                                    </div>
-                                    <div class="text-[10px] text-slate-400">
-                                        {{ item.return_time ? 'Izin Sementara' : 'Izin Langsung Pulang' }}
-                                    </div>
-                                </div>
-                            </td>
+                            </div>
+                        </template>
+                    </Column>
+                    <Column field="reason" header="Keperluan / Alasan">
+                        <template #body="{ data }">
+                            <p class="line-clamp-2 leading-relaxed text-slate-600 text-xs" :title="data.reason">
+                                {{ data.reason }}
+                            </p>
+                        </template>
+                    </Column>
+                    <Column field="approval_status" header="Status" sortable class="text-center" style="width: 8rem">
+                        <template #body="{ data }">
+                            <Tag :value="statusLabel(data.approval_status)" :severity="statusSeverity(data.approval_status)" rounded />
+                        </template>
+                    </Column>
+                    <Column field="created_at" header="Diajukan" sortable class="text-center" style="width: 8rem">
+                        <template #body="{ data }">
+                            <span class="font-mono text-[11px] text-slate-400 whitespace-nowrap">
+                                {{ data.created_at || '-' }}
+                            </span>
+                        </template>
+                    </Column>
+                    <Column header="Aksi Persetujuan" class="text-center" style="width: 10.5rem">
+                        <template #body="{ data }">
+                            <div class="flex items-center justify-center gap-1.5 flex-wrap">
+                                <template v-if="data.approval_status === 0">
+                                    <Button
+                                        label="Setujui"
+                                        icon="pi pi-check"
+                                        size="small"
+                                        severity="success"
+                                        @click="openConfirmModal(data, 'approve')"
+                                    />
+                                    <Button
+                                        label="Tolak"
+                                        icon="pi pi-times"
+                                        size="small"
+                                        severity="danger"
+                                        outlined
+                                        @click="openConfirmModal(data, 'reject')"
+                                    />
+                                </template>
+                                <Button
+                                    icon="pi pi-ticket"
+                                    label="Tiket"
+                                    text
+                                    size="small"
+                                    severity="info"
+                                    @click="openTicketModal(data)"
+                                />
+                            </div>
+                        </template>
+                    </Column>
+                </DataTable>
 
-                            <!-- Keperluan / Alasan -->
-                            <td class="py-3 px-3.5 max-w-xs text-slate-600 text-xs">
-                                <p class="line-clamp-2 leading-relaxed" :title="item.reason">
-                                    {{ item.reason }}
-                                </p>
-                            </td>
+                <!-- Server Pagination Links jika data bertingkat per halaman -->
+                <div
+                    v-if="permits.total > permits.per_page"
+                    class="px-5 py-3.5 border-t border-slate-200 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600"
+                >
+                    <div>
+                        Menampilkan <span class="font-bold font-mono">{{ permits.from || 0 }}</span> sampai
+                        <span class="font-bold font-mono">{{ permits.to || 0 }}</span> dari
+                        <span class="font-bold font-mono">{{ permits.total?.toLocaleString('id-ID') }}</span> pengajuan izin keluar
+                    </div>
 
-                            <!-- Status Approval -->
-                            <td class="py-3 px-3.5 text-center whitespace-nowrap">
-                                <span
-                                    v-if="item.approval_status === 0"
-                                    class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
-                                >
-                                    <i class="pi pi-clock text-[10px]" />
-                                    <span>Menunggu</span>
-                                </span>
-                                <span
-                                    v-else-if="item.approval_status === 1"
-                                    class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                >
-                                    <i class="pi pi-check text-[10px]" />
-                                    <span>Disetujui</span>
-                                </span>
-                                <span
-                                    v-else
-                                    class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200"
-                                >
-                                    <i class="pi pi-times text-[10px]" />
-                                    <span>Ditolak</span>
-                                </span>
-                            </td>
-
-                            <!-- Waktu Pengajuan -->
-                            <td class="py-3 px-3.5 text-center font-mono text-[11px] text-slate-400 whitespace-nowrap">
-                                {{ item.created_at || '-' }}
-                            </td>
-
-                            <!-- Aksi Persetujuan -->
-                            <td class="py-3 px-3.5 text-center whitespace-nowrap">
-                                <div class="flex items-center justify-center gap-1.5">
-                                    <!-- Jika Status Pending: Tombol Setujui & Tolak Cepat -->
-                                    <template v-if="item.approval_status === 0">
-                                        <button
-                                            type="button"
-                                            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-colors shadow-xs"
-                                            title="Setujui Izin Keluar"
-                                            @click="openConfirmModal(item, 'approve')"
-                                        >
-                                            <i class="pi pi-check text-[10px]" />
-                                            <span>Setujui</span>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            class="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs transition-colors"
-                                            title="Tolak Izin Keluar"
-                                            @click="openConfirmModal(item, 'reject')"
-                                        >
-                                            <i class="pi pi-times text-[10px]" />
-                                            <span>Tolak</span>
-                                        </button>
-                                    </template>
-
-                                    <!-- Tombol Tiket / Detail -->
-                                    <button
-                                        type="button"
-                                        class="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-colors"
-                                        title="Lihat Detail / Tiket Pos Satpam"
-                                        @click="openTicketModal(item)"
-                                    >
-                                        <i class="pi pi-ticket text-[11px] text-[#005BAC]" />
-                                        <span>Tiket</span>
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-
-                        <!-- Empty State -->
-                        <tr v-if="permits.data.length === 0">
-                            <td colspan="9" class="py-12 text-center text-slate-400">
-                                <i class="pi pi-inbox text-3xl mb-2 block text-slate-300" />
-                                <span class="font-medium text-xs">Tidak ada data izin keluar kantor yang sesuai dengan filter pencarian.</span>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- ================= PAGINATION BAR ================= -->
-            <div
-                v-if="permits.total > 0"
-                class="px-5 py-3.5 border-t border-slate-200 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600"
-            >
-                <div>
-                    Menampilkan <span class="font-bold font-mono">{{ permits.from || 0 }}</span> sampai
-                    <span class="font-bold font-mono">{{ permits.to || 0 }}</span> dari
-                    <span class="font-bold font-mono">{{ permits.total?.toLocaleString('id-ID') }}</span> pengajuan izin keluar
+                    <div class="flex items-center gap-1">
+                        <template v-for="(link, lIdx) in permits.links" :key="lIdx">
+                            <Link
+                                v-if="link.url"
+                                :href="link.url"
+                                class="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors"
+                                :class="[
+                                    link.active
+                                        ? 'bg-[#005BAC] text-white border-[#005BAC] font-bold'
+                                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                                ]"
+                                v-html="link.label"
+                                preserve-scroll
+                                preserve-state
+                            />
+                            <span
+                                v-else
+                                class="px-3 py-1.5 rounded-lg border border-slate-100 text-slate-300 text-xs cursor-not-allowed"
+                                v-html="link.label"
+                            />
+                        </template>
+                    </div>
                 </div>
-
-                <div class="flex items-center gap-1">
-                    <template v-for="(link, lIdx) in permits.links" :key="lIdx">
-                        <Link
-                            v-if="link.url"
-                            :href="link.url"
-                            class="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors"
-                            :class="[
-                                link.active
-                                    ? 'bg-[#005BAC] text-white border-[#005BAC] font-bold'
-                                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-                            ]"
-                            v-html="link.label"
-                            preserve-scroll
-                            preserve-state
-                        />
-                        <span
-                            v-else
-                            class="px-3 py-1.5 rounded-lg border border-slate-100 text-slate-300 text-xs cursor-not-allowed"
-                            v-html="link.label"
-                        />
-                    </template>
-                </div>
-            </div>
-        </div>
+            </template>
+        </Card>
 
         <!-- ================= MODAL DIALOG KONFIRMASI (SETUJUI / TOLAK) ================= -->
         <div
@@ -581,9 +667,8 @@ onUnmounted(() => {
                     </button>
                 </div>
 
-                <!-- Body Konfirmasi (Scrollable di layar kecil) -->
+                <!-- Body Konfirmasi -->
                 <div class="p-4 sm:p-5 space-y-3.5 text-xs overflow-y-auto flex-1 overscroll-contain">
-                    <!-- Informasi Ringkas Pegawai & Izin -->
                     <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-1.5 text-xs">
                         <div class="flex justify-between items-start gap-2">
                             <span class="text-slate-500 shrink-0">Nama Pegawai:</span>
@@ -594,7 +679,7 @@ onUnmounted(() => {
                             <span class="font-mono text-slate-700 text-right">{{ confirmDialog.item?.nip }} - {{ confirmDialog.item?.bagian }}</span>
                         </div>
                         <div class="flex justify-between items-start gap-2">
-                            <span class="text-slate-500 shrink-0">Tanggal & Waktu:</span>
+                            <span class="text-slate-500 shrink-0">Tanggal &amp; Waktu:</span>
                             <span class="font-mono text-slate-800 font-semibold text-right">
                                 {{ confirmDialog.item?.date }} ({{ confirmDialog.item?.exit_time }} s/d {{ confirmDialog.item?.return_time || 'Pulang' }})
                             </span>
@@ -660,9 +745,8 @@ onUnmounted(() => {
                     </div>
                 </div>
 
-                <!-- Badan Tiket (Scrollable di HP kecil) -->
+                <!-- Badan Tiket -->
                 <div class="p-4 sm:p-5 space-y-3.5 text-xs overflow-y-auto flex-1 overscroll-contain">
-                    <!-- Status Stempel -->
                     <div class="text-center">
                         <span
                             v-if="activeTicket.approval_status === 1"
@@ -717,7 +801,7 @@ onUnmounted(() => {
                         </div>
                     </div>
 
-                    <!-- QR Code Asli Ter-generate (Bisa discan HP / Satpam) -->
+                    <!-- QR Code Asli Ter-generate -->
                     <div class="text-center pt-1">
                         <div class="size-44 sm:size-48 mx-auto border-2 border-slate-300 rounded-2xl p-2.5 flex flex-col items-center justify-center bg-white shadow-inner overflow-hidden">
                             <div v-if="qrSvgHtml" v-html="qrSvgHtml" class="flex items-center justify-center size-full [&>svg]:w-full [&>svg]:h-full [&>svg]:block" />
@@ -732,7 +816,7 @@ onUnmounted(() => {
                     </div>
                 </div>
 
-                <!-- Footer Modal (Selalu terlihat di layar) -->
+                <!-- Footer Modal -->
                 <div class="p-3.5 sm:p-4 bg-slate-50 border-t border-slate-200 flex justify-end shrink-0">
                     <button
                         type="button"
