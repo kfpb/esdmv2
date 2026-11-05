@@ -58,4 +58,11 @@ Route::middleware('auth')->group(function () {
 
     // ===== Laporan & Rekapitulasi Izin Pegawai (Admin / HRD) =====
     Route::get('/admin/izin', [PermissionRequestController::class, 'index'])->name('admin.izin.index');
+
+    // ===== Master Data (Admin / HRD) =====
+    Route::prefix('admin')->name('admin.')->group(function () {
+        Route::prefix('master_data')->name('master_data.')->group(function () {
+            Route::resource('division', \App\Http\Controllers\MasterData\DivisionController::class)->except(['create', 'edit', 'show']);
+        });
+    });
 });
