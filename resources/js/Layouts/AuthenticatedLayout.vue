@@ -217,6 +217,7 @@ const searchMenus = computed(() => {
         { label: 'Rekapitulasi', url: '/datatable', category: 'Kepegawaian', icon: 'pi pi-table' },
         { label: 'Statistik', url: '/charts', category: 'Kepegawaian', icon: 'pi pi-chart-bar' },
         { label: 'Struktur Organisasi & Jabatan', url: '/components', category: 'Kepegawaian', icon: 'pi pi-sitemap' },
+        { label: 'Laporan Absensi Karyawan', url: '/absensi/laporan', category: 'Operasional', icon: 'pi pi-calendar' },
         { label: 'Rekapitulasi Presensi & Kehadiran', url: '/charts', category: 'Operasional', icon: 'pi pi-calendar-check' },
         { label: 'Verifikasi & Approval Lembur (SPL)', url: '/forms', category: 'Operasional', icon: 'pi pi-clock' },
         { label: 'Permohonan & Persetujuan Cuti', url: '/forms', category: 'Operasional', icon: 'pi pi-calendar-minus' },
@@ -1075,11 +1076,16 @@ const isCurrentUrl = (path) => {
                             <ul v-show="openGroups.layananMandiri" class="pl-8 pr-1 space-y-1 pt-0.5">
                                 <li>
                                     <Link
-                                        href="/charts"
-                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                        href="/absensi/laporan"
+                                        :class="[
+                                            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/absensi/laporan')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
                                     >
                                         <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Riwayat Absensi Saya</span>
+                                        <span>Laporan & Riwayat Absensi</span>
                                     </Link>
                                 </li>
                                 <li>

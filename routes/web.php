@@ -47,6 +47,7 @@ Route::middleware('auth')->group(function () {
     // ===== Portal Pegawai — Presensi Mandiri =====
     Route::prefix('absensi')->name('absensi.')->group(function () {
         Route::get('/', [AttendanceController::class, 'employeeDashboard'])->name('dashboard');
+        Route::get('/laporan', [AttendanceController::class, 'employeeReport'])->name('laporan');
         Route::post('/masuk',  [AttendanceController::class, 'checkIn'])->name('masuk');
         Route::post('/pulang', [AttendanceController::class, 'checkOut'])->name('pulang');
     });
