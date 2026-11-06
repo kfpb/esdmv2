@@ -443,11 +443,18 @@ const isCurrentUrl = (path) => {
                                 </li>
                                 <li>
                                     <Link
-                                        href="/components"
-                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                        href="/admin/master_data/religion"
+                                        :class="[
+                                            'flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/admin/master_data/religion')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
                                     >
-                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Data Agama</span>
+                                        <div class="flex items-center gap-2.5">
+                                            <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                            <span>Data Agama</span>
+                                        </div>
                                     </Link>
                                 </li>
                                 <li>
