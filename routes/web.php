@@ -8,6 +8,7 @@ use App\Http\Controllers\MasterData\DivisionController;
 use App\Http\Controllers\MasterData\SubDivisionController;
 use App\Http\Controllers\MasterData\ReligionController;
 use App\Http\Controllers\MasterData\WorkShiftController;
+use App\Http\Controllers\MasterData\DocumentController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -91,6 +92,8 @@ Route::middleware('auth')->group(function () {
             Route::resource('religion', ReligionController::class)->except(['create', 'edit', 'show']);
 
             Route::resource('work_shift', WorkShiftController::class)->except(['create', 'edit', 'show']);
+
+            Route::resource('document', DocumentController::class)->except(['create', 'edit', 'show']);
         });
     });
 });
