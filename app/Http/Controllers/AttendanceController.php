@@ -69,7 +69,10 @@ class AttendanceController extends Controller
             ->where('leave_requests.employee_nip', $nip)
             ->where('leave_requests.start_date', '<=', $today)
             ->where('leave_requests.end_date', '>=', $today)
-            ->where('leave_requests.approval_status', 'Approved')
+            ->where(function ($q) {
+                $q->where('leave_requests.approval_status', 1)
+                    ->orWhere('leave_requests.approval_status', 'Approved');
+            })
             ->select('leave_types.name as leave_name', 'leave_requests.reason')
             ->first();
 
@@ -422,11 +425,19 @@ class AttendanceController extends Controller
             ->whereBetween('attendance_date', [$startOfMonth, $today])
             ->get();
 
+        $hadir       = $records->where('is_present_in', true)->count();
+        $terlambat   = $records->where('is_late', true)->count();
+        $pulangCepat = $records->where('is_early_leave', true)->count();
+        $potongan    = (int) $records->sum('deduction_amount');
+
         return [
-            'hadir'         => $records->where('is_present_in', true)->count(),
-            'terlambat'     => $records->where('is_late', true)->count(),
-            'pulangCepat'   => $records->where('is_early_leave', true)->count(),
-            'totalPotongan' => (int) $records->sum('deduction_amount'),
+            'hadir'           => $hadir,
+            'total_hadir'     => $hadir,
+            'terlambat'       => $terlambat,
+            'total_terlambat' => $terlambat,
+            'pulangCepat'     => $pulangCepat,
+            'totalPotongan'   => $potongan,
+            'total_potongan'  => $potongan,
         ];
     }
 
