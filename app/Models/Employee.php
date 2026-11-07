@@ -75,6 +75,11 @@ class Employee extends Model
         return $this->hasMany(PermissionRequest::class, 'employee_nip', 'nip');
     }
 
+    public function exitPermits(): HasMany
+    {
+        return $this->hasMany(ExitPermit::class, 'employee_nip', 'nip');
+    }
+
     public function leaveQuotas(): HasMany
     {
         return $this->hasMany(LeaveQuota::class, 'employee_nip', 'nip');
