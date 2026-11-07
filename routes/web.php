@@ -61,6 +61,9 @@ Route::middleware('auth')->group(function () {
     //  Laporan & Rekapitulasi Izin Pegawai admin 
     Route::get('/admin/izin', [PermissionRequestController::class, 'index'])->name('admin.izin.index');
 
+    //  Laporan Rekapitulasi Absensi Pegawai Admin (Seluruh Karyawan KFPB)
+    Route::get('/admin/absensi/laporan', [AttendanceController::class, 'employeeReport'])->name('admin.absensi.laporan');
+
     //  Modul Izin Keluar Kantor (Layanan Pegawai, Approval Atasan & Scanner Satpam)
     Route::prefix('izin-keluar')->name('izin-keluar.')->group(function () {
         Route::get('/', [ExitPermitController::class, 'employeeIndex'])->name('index');

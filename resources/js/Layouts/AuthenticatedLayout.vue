@@ -98,6 +98,8 @@ const openGroups = ref({
     // Admin Groups
     kepegawaian: true,
     operasional: true,
+    absensi: true,
+    rekapitulasi: true,
     payroll: false,
     sistem: false,
     // Employee Groups
@@ -841,10 +843,10 @@ const isCurrentUrl = (path) => {
                             <ul v-show="openGroups.rekapitulasi" class="pl-8 pr-1 space-y-1 pt-0.5">
                                 <li>
                                     <Link
-                                        href="/charts"
+                                        href="/admin/absensi/laporan"
                                         :class="[
                                             'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
-                                            isCurrentUrl('/charts')
+                                            isCurrentUrl('/admin/absensi/laporan') || isCurrentUrl('/absensi/laporan')
                                                 ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
                                                 : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
                                         ]"
