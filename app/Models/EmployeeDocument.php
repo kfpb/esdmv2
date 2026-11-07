@@ -21,4 +21,9 @@ class EmployeeDocument extends Model
     {
         return $this->belongsTo(Employee::class, 'employee_nip', 'nip');
     }
+
+    public function document(): BelongsTo
+    {
+        return $this->belongsTo(Document::class, 'document_id');
+    }
 }

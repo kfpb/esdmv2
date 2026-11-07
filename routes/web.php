@@ -4,6 +4,10 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\ExitPermitController;
 use App\Http\Controllers\PermissionRequestController;
+use App\Http\Controllers\MasterData\DivisionController;
+use App\Http\Controllers\MasterData\SubDivisionController;
+use App\Http\Controllers\MasterData\ReligionController;
+use App\Http\Controllers\MasterData\WorkShiftController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -75,5 +79,18 @@ Route::middleware('auth')->group(function () {
     Route::prefix('admin/izin-keluar')->name('admin.izin-keluar.')->group(function () {
         Route::get('/', [ExitPermitController::class, 'adminIndex'])->name('index');
         Route::post('/{exitPermit}/status', [ExitPermitController::class, 'updateStatus'])->name('status');
+    });
+
+    // ===== Master Data (Admin / HRD) =====
+    Route::prefix('admin')->name('admin.')->group(function () {
+        Route::prefix('master_data')->name('master_data.')->group(function () {
+            Route::resource('division',DivisionController::class)->except(['create', 'edit', 'show']);
+
+            Route::resource('sub_division', SubDivisionController::class)->except(['create', 'edit', 'show']);
+
+            Route::resource('religion', ReligionController::class)->except(['create', 'edit', 'show']);
+
+            Route::resource('work_shift', WorkShiftController::class)->except(['create', 'edit', 'show']);
+        });
     });
 });
