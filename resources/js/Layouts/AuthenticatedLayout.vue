@@ -59,6 +59,14 @@ const hasAdminAccess = computed(() => {
     );
 });
 
+// Petugas Satpam / Keamanan check
+const isSecurityGuard = computed(() => {
+    const u = currentUser.value || {};
+    const uname = (u.username || '').toUpperCase();
+    const nip = (u.employee_nip || '').toUpperCase();
+    return uname.startsWith('SC_') || nip.startsWith('SC_') || u.role === 'security' || hasAdminAccess.value;
+});
+
 // Portal View Mode: 'admin' (Manajemen/HRD) vs 'employee' (Layanan Mandiri Pegawai)
 const portalMode = ref('admin');
 
@@ -210,6 +218,7 @@ const searchMenus = computed(() => {
         { label: 'Rekapitulasi', url: '/datatable', category: 'Kepegawaian', icon: 'pi pi-table' },
         { label: 'Statistik', url: '/charts', category: 'Kepegawaian', icon: 'pi pi-chart-bar' },
         { label: 'Struktur Organisasi & Jabatan', url: '/components', category: 'Kepegawaian', icon: 'pi pi-sitemap' },
+        { label: 'Laporan Absensi Karyawan', url: '/absensi/laporan', category: 'Operasional', icon: 'pi pi-calendar' },
         { label: 'Rekapitulasi Presensi & Kehadiran', url: '/charts', category: 'Operasional', icon: 'pi pi-calendar-check' },
         { label: 'Verifikasi & Approval Lembur (SPL)', url: '/forms', category: 'Operasional', icon: 'pi pi-clock' },
         { label: 'Permohonan & Persetujuan Cuti', url: '/forms', category: 'Operasional', icon: 'pi pi-calendar-minus' },
@@ -884,16 +893,30 @@ const isCurrentUrl = (path) => {
                                 </li>
                                 <li>
                                     <Link
-                                        href="/charts"
+                                        href="/admin/izin-keluar"
                                         :class="[
                                             'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
-                                            isCurrentUrl('/charts')
+                                            isCurrentUrl('/admin/izin-keluar')
                                                 ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
                                                 : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
                                         ]"
                                     >
                                         <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Laporan Izin Keluar</span>
+                                        <span>Rekap Izin Keluar Kantor</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/izin-keluar/scan"
+                                        :class="[
+                                            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/izin-keluar/scan')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Scanner QR Pos Satpam</span>
                                     </Link>
                                 </li>
                             </ul>
@@ -1091,11 +1114,16 @@ const isCurrentUrl = (path) => {
                             <ul v-show="openGroups.layananMandiri" class="pl-8 pr-1 space-y-1 pt-0.5">
                                 <li>
                                     <Link
-                                        href="/charts"
-                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                        href="/absensi/laporan"
+                                        :class="[
+                                            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/absensi/laporan')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
                                     >
                                         <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Riwayat Absensi Saya</span>
+                                        <span>Laporan & Riwayat Absensi</span>
                                     </Link>
                                 </li>
                                 <li>
@@ -1118,11 +1146,33 @@ const isCurrentUrl = (path) => {
                                 </li>
                                 <li>
                                     <Link
-                                        href="/forms"
-                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                        href="/izin-keluar"
+                                        :class="[
+                                            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/izin-keluar')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
                                     >
                                         <span class="size-1.5 rounded-full bg-current shrink-0" />
                                         <span>Izin Keluar Kantor</span>
+                                    </Link>
+                                </li>
+                                <li v-if="isSecurityGuard">
+                                    <Link
+                                        href="/izin-keluar/scan"
+                                        :class="[
+                                            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/izin-keluar/scan')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <div class="flex items-center justify-between flex-1">
+                                            <span>Scanner QR Satpam</span>
+                                            <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800">POS</span>
+                                        </div>
                                     </Link>
                                 </li>
                                 <li>

@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\Attendance;
 use App\Models\Employee;
 use App\Models\OfficeLocation;
+use App\Models\OrganizationStructure;
 use App\Models\WorkShift;
 use Carbon\Carbon;
+use Carbon\CarbonPeriod;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -524,5 +526,263 @@ class AttendanceController extends Controller
         $year  = date('Y', $ts);
 
         return "{$day}, {$d} {$month} {$year}";
+    }
+
+    /**
+     * Halaman Laporan Absensi Pegawai untuk Role User (Setara /user.php?id=lapabsensi)
+     * Menampilkan data table presensi, filter rentang tanggal, filter pegawai/bawahan,
+     * filter sumber laporan (eSDM / Absen Wajah), dan cetak/export PDF standar korporat.
+     */
+    public function employeeReport(Request $request): Response
+    {
+        $user       = Auth::user();
+        $currentNip = $user->employee_nip ?? $user->nip;
+        $employee   = Employee::where('nip', $currentNip)->with(['division', 'position'])->first();
+
+        // 1. Ambil daftar bawahan jika user adalah atasan (supervisor / admin)
+        $subordinateNips = [];
+        try {
+            $node = OrganizationStructure::findByNip($currentNip);
+            $subordinateNips = $node ? $node->getSubordinateNips() : [];
+        } catch (\Throwable $e) {
+            $subordinateNips = [];
+        }
+
+        $isSupervisor = $user->isSupervisor() || count($subordinateNips) > 0 || $user->hasAdminAccess();
+
+        // 2. Tentukan target NIP yang sedang dilihat
+        $requestedNip = trim((string) $request->input('nip', ''));
+        if (! empty($requestedNip)) {
+            // Validasi otorisasi: hanya izinkan jika diri sendiri, atau admin, atau bawahan sah
+            if ($requestedNip === $currentNip || $user->hasAdminAccess() || in_array($requestedNip, $subordinateNips)) {
+                $targetNip = $requestedNip;
+            } else {
+                $targetNip = $currentNip;
+            }
+        } else {
+            $targetNip = $currentNip;
+        }
+
+        $targetEmployee = ($targetNip === $currentNip)
+            ? $employee
+            : Employee::where('nip', $targetNip)->with(['division', 'position'])->first();
+
+        // 3. Pilihan daftar pegawai untuk dropdown filter
+        $employeeOptions = [
+            [
+                'nip'  => $currentNip,
+                'name' => ($employee?->full_name ?? $currentNip) . ' (Diri Sendiri)',
+            ],
+        ];
+
+        if ($isSupervisor && count($subordinateNips) > 0) {
+            $subs = Employee::whereIn('nip', $subordinateNips)->orderBy('full_name')->get(['nip', 'full_name']);
+            foreach ($subs as $sub) {
+                $employeeOptions[] = [
+                    'nip'  => $sub->nip,
+                    'name' => "{$sub->nip} - {$sub->full_name}",
+                ];
+            }
+        }
+
+        // 4. Filter rentang tanggal (default awal bulan berjalan s/d akhir bulan berjalan agar mencakup 1 bulan full)
+        $startDate = $request->input('awal', $request->input('start_date', now('Asia/Jakarta')->startOfMonth()->toDateString()));
+        $endDate   = $request->input('akhir', $request->input('end_date', now('Asia/Jakarta')->endOfMonth()->toDateString()));
+        $source    = $request->input('sumber', 'all'); // 'all', 'esdm', 'wajah'
+        $today     = now('Asia/Jakarta')->toDateString();
+
+        // 5. Query data absensi eSDM yang sudah ada
+        $attendancesRaw = Attendance::where('employee_nip', $targetNip)
+            ->whereBetween('attendance_date', [$startDate, $endDate])
+            ->with(['workShift', 'permissionType'])
+            ->get()
+            ->keyBy(fn ($a) => $a->attendance_date->format('Y-m-d'));
+
+        // 6. Ambil data biometrik wajah (Face-ID) pada rentang tanggal yang sama
+        $faceBiometricsMap = DB::table('face_biometrics')
+            ->where('employee_nip', $targetNip)
+            ->whereBetween('recorded_date', [$startDate, $endDate])
+            ->orderBy('recorded_time')
+            ->get()
+            ->groupBy('recorded_date');
+
+        // 7. Ambil data izin/cuti yang disetujui
+        $approvedPermissions = DB::table('permission_requests')
+            ->leftJoin('permission_types', 'permission_requests.permission_type_id', '=', 'permission_types.id')
+            ->where('permission_requests.employee_nip', $targetNip)
+            ->where('permission_requests.start_date', '<=', $endDate)
+            ->where('permission_requests.end_date', '>=', $startDate)
+            ->where('permission_requests.approval_status', 1)
+            ->select(
+                'permission_requests.*',
+                'permission_types.name as perm_name'
+            )
+            ->get();
+
+        $permissionDateMap = [];
+        foreach ($approvedPermissions as $perm) {
+            $pStart = Carbon::parse($perm->start_date)->max(Carbon::parse($startDate));
+            $pEnd   = Carbon::parse($perm->end_date)->min(Carbon::parse($endDate));
+            $pPeriod = CarbonPeriod::create($pStart, $pEnd);
+            foreach ($pPeriod as $pDate) {
+                $permissionDateMap[$pDate->format('Y-m-d')] = [
+                    'id'                 => $perm->id,
+                    'perm_name'          => $perm->perm_name,
+                    'permission_type_id' => $perm->permission_type_id,
+                    'reason'             => $perm->reason,
+                ];
+            }
+        }
+
+        // 8. Ambil data Hari Libur Nasional dari tabel holidays
+        $holidaysMap = DB::table('holidays')
+            ->whereBetween('date', [$startDate, $endDate])
+            ->get()
+            ->keyBy(fn ($h) => Carbon::parse($h->date)->format('Y-m-d'));
+
+        // 9. Susun seluruh tanggal kalender dalam rentang $startDate s/d $endDate
+        $period   = CarbonPeriod::create($startDate, $endDate);
+        $dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+        $records  = [];
+
+        foreach ($period as $dt) {
+            $dateStr   = $dt->format('Y-m-d');
+            $dayOfWeek = (int) $dt->format('w'); // 0: Minggu, 6: Sabtu
+            $dayName   = $dayNames[$dayOfWeek];
+            $isWeekend = ($dayOfWeek === 0 || $dayOfWeek === 6);
+            $holiday   = $holidaysMap->get($dateStr);
+            $isHoliday = ! empty($holiday);
+            $isFuture  = ($dateStr > $today);
+
+            $att       = $attendancesRaw->get($dateStr);
+            $faceGroup = $faceBiometricsMap->get($dateStr);
+            $faceIn    = $faceGroup?->first()?->recorded_time ? substr($faceGroup->first()->recorded_time, 0, 5) : null;
+            $faceOut   = ($faceGroup && $faceGroup->count() > 1 && $faceGroup->last()?->recorded_time)
+                ? substr($faceGroup->last()->recorded_time, 0, 5)
+                : null;
+
+            $checkIn = $att?->check_in_time ? substr((string) $att->check_in_time, 0, 5) : ($faceIn ?? '-');
+            $checkOut = ($att?->check_out_time && $att->check_out_time !== '00:00:00' && $att->check_out_time !== '00:00:01')
+                ? substr((string) $att->check_out_time, 0, 5)
+                : ($faceOut ?? '-');
+
+            $hasAttended = ($checkIn !== '-' || $checkOut !== '-' || ($att && $att->is_present_in));
+            $overtimeDuration = $att?->overtime_duration ?: ($att?->is_overtime ? 'Lembur' : '-');
+            $hasOvertime = ($overtimeDuration !== '-' && ! empty($overtimeDuration));
+
+            // Filter sumber data presensi jika dipilih
+            if ($source === 'wajah' && empty($faceIn) && empty($faceOut)) {
+                continue;
+            }
+            if ($source === 'esdm' && (! $att || (empty($att->check_in_time) && empty($att->check_out_time)))) {
+                continue;
+            }
+
+            $perm = $permissionDateMap[$dateStr] ?? null;
+
+            // Klasifikasi jenis baris sesuai legenda cetak absensi KFPB
+            if ($isWeekend || $isHoliday) {
+                if ($hasAttended || $hasOvertime) {
+                    $badgeType = 'lembur_libur';
+                    $status    = 'Lembur / Masuk Libur';
+                    $severity  = 'success';
+                    $notes     = $att?->notes ?: ($isHoliday ? ('Lembur Libur: ' . $holiday->name) : 'Lembur Hari Libur');
+                } elseif ($isHoliday) {
+                    $badgeType = 'libur_nasional';
+                    $status    = 'Libur Nasional';
+                    $severity  = 'warn';
+                    $notes     = $holiday->name ?: 'Libur Nasional';
+                } else {
+                    $badgeType = 'weekend';
+                    $status    = 'Libur Mingguan';
+                    $severity  = 'secondary';
+                    $notes     = $isFuture ? 'Libur Akhir Pekan (Belum Berjalan)' : ($att?->notes ?: 'Libur Akhir Pekan');
+                }
+            } elseif ($isFuture && ! $hasAttended) {
+                $badgeType = 'belum_berjalan';
+                $status    = 'Belum Berjalan';
+                $severity  = 'secondary';
+                $notes     = 'Belum Berjalan';
+            } elseif ($perm && ! $hasAttended) {
+                $badgeType = 'izin';
+                $status    = $perm['perm_name'] ?? 'Izin';
+                $severity  = ($perm['permission_type_id'] == 2) ? 'danger' : 'info';
+                $notes     = $perm['reason'] ?: 'Izin Disetujui';
+            } elseif ($hasAttended) {
+                if ($att?->is_late) {
+                    $badgeType = 'terlambat';
+                    $status    = 'Terlambat';
+                    $severity  = 'warn';
+                } else {
+                    $badgeType = 'hadir';
+                    $status    = 'Hadir Tepat Waktu';
+                    $severity  = 'success';
+                }
+                $notes = $att?->notes ?: '-';
+            } else {
+                $badgeType = 'alpha';
+                $status    = 'Tidak Hadir';
+                $severity  = 'danger';
+                $notes     = 'Tidak Ada Presensi (Alpha)';
+            }
+
+            $records[] = [
+                'id'                => $att?->id ? (string) $att->id : ('row-' . $dateStr),
+                'date'              => $dateStr,
+                'formatted_date'    => $dt->format('d/m/Y'),
+                'day_name'          => $dayName,
+                'shift_name'        => $att?->workShift?->name ?? 'Non-Shift',
+                'check_in'          => $checkIn,
+                'check_out'         => $checkOut,
+                'is_late'           => (bool) ($att?->is_late ?? false),
+                'is_early_leave'    => (bool) ($att?->is_early_leave ?? false),
+                'overtime_duration' => $overtimeDuration,
+                'status'            => $status,
+                'badge_type'        => $badgeType,
+                'severity'          => $severity,
+                'notes'             => $notes,
+                'work_mode'         => $att?->work_mode ?? '-',
+                'face_in'           => $faceIn,
+                'face_out'          => $faceOut,
+            ];
+        }
+
+        // Urutkan tanggal terbaru di atas untuk tampilan tabel
+        usort($records, fn ($a, $b) => strcmp($b['date'], $a['date']));
+
+        $totalRecord = count($records);
+        $totalHadir  = count(array_filter($records, fn ($r) => in_array($r['status'], ['Hadir Tepat Waktu', 'Terlambat']) || $r['badge_type'] === 'lembur_libur'));
+        $totalLate   = count(array_filter($records, fn ($r) => $r['is_late'] === true || $r['status'] === 'Terlambat'));
+        $totalIzin   = count(array_filter($records, fn ($r) => $r['badge_type'] === 'izin'));
+        $totalLembur = count(array_filter($records, fn ($r) => $r['overtime_duration'] !== '-' || $r['badge_type'] === 'lembur_libur'));
+        $totalAlpha  = count(array_filter($records, fn ($r) => $r['badge_type'] === 'alpha'));
+        $totalLibur  = count(array_filter($records, fn ($r) => in_array($r['badge_type'], ['weekend', 'libur_nasional'])));
+
+        return Inertia::render('Employee/AttendanceReport', [
+            'attendances'      => $records,
+            'targetEmployee'   => [
+                'nip'       => $targetEmployee?->nip ?? $targetNip,
+                'name'      => $targetEmployee?->full_name ?? '-',
+                'division'  => $targetEmployee?->division?->name ?? 'Plant Banjaran',
+                'position'  => $targetEmployee?->position?->name ?? '-',
+            ],
+            'employeeOptions'  => $employeeOptions,
+            'isSupervisor'     => $isSupervisor,
+            'filters'          => [
+                'nip'        => $targetNip,
+                'start_date' => $startDate,
+                'end_date'   => $endDate,
+                'sumber'     => $source,
+            ],
+            'statistics'       => [
+                'total'     => $totalRecord,
+                'hadir'     => $totalHadir,
+                'terlambat' => $totalLate,
+                'izin'      => $totalIzin,
+                'lembur'    => $totalLembur,
+                'alpha'     => $totalAlpha,
+                'libur'     => $totalLibur,
+            ],
+        ]);
     }
 }
