@@ -35,6 +35,10 @@ const props = defineProps({
         type: Boolean,
         default: false,
     },
+    isAdmin: {
+        type: Boolean,
+        default: false,
+    },
     filters: {
         type: Object,
         default: () => ({
@@ -140,7 +144,8 @@ function getRowClass(data) {
 }
 
 function applyFilter() {
-    router.get('/absensi/laporan', {
+    const targetUrl = typeof window !== 'undefined' ? window.location.pathname : '/absensi/laporan';
+    router.get(targetUrl, {
         nip: filterForm.nip,
         start_date: filterForm.start_date,
         end_date: filterForm.end_date,
@@ -277,7 +282,10 @@ function handleExportPdf() {
                 </div>
                 <h1 class="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
                     <span>Laporan &amp; Riwayat Absensi</span>
-                    <span v-if="isSupervisor" class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-50 text-[#005BAC] border border-blue-200">
+                    <span v-if="isAdmin" class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        Akses Administrator / HRD
+                    </span>
+                    <span v-else-if="isSupervisor" class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-50 text-[#005BAC] border border-blue-200">
                         Akses Atasan
                     </span>
                 </h1>
@@ -350,6 +358,8 @@ function handleExportPdf() {
                         optionLabel="name"
                         optionValue="nip"
                         placeholder="Pilih Pegawai"
+                        filter
+                        filterPlaceholder="Cari NIP atau Nama..."
                         class="w-full text-xs"
                     />
                     <div v-else class="px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-700 truncate">
