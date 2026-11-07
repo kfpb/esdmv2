@@ -4,6 +4,12 @@ import { Head, Link, useForm } from '@inertiajs/vue3';
 import { ref, computed } from 'vue';
 import Toast from 'primevue/toast';
 import { useToast } from 'primevue/usetoast';
+import DatePicker from 'primevue/datepicker';
+import Select from 'primevue/select';
+import RadioButton from 'primevue/radiobutton';
+import Textarea from 'primevue/textarea';
+import Button from 'primevue/button';
+import IftaLabel from 'primevue/iftalabel';
 
 defineOptions({ layout: AuthenticatedLayout });
 
@@ -35,7 +41,10 @@ const toast = useToast();
 const fileInputRef = ref(null);
 const filePreview = ref(null);
 const selectedFileName = ref('');
-const employeeSearchQuery = ref('');
+
+// State tanggal untuk PrimeVue DatePicker
+const selectedStartDate = ref(null);
+const selectedEndDate = ref(null);
 
 // Inisialisasi formulir pengajuan (mengadopsi struktur inputijin.php)
 const form = useForm({
@@ -47,37 +56,20 @@ const form = useForm({
     attachment: null,
 });
 
-// Filter pegawai untuk role Admin (searchable dropdown)
-const filteredEmployees = computed(() => {
-    if (!employeeSearchQuery.value) return props.employees;
-    const q = employeeSearchQuery.value.toLowerCase();
-    return props.employees.filter(
-        emp => emp.full_name?.toLowerCase().includes(q) || emp.nip?.includes(q)
-    );
-});
-
 // Menghitung estimasi durasi hari izin
 const estimatedDurationDays = computed(() => {
-    if (!form.start_date || !form.end_date) return 0;
-    const start = new Date(form.start_date);
-    const end = new Date(form.end_date);
+    if (!selectedStartDate.value || !selectedEndDate.value) return 0;
+    const start = new Date(selectedStartDate.value);
+    const end = new Date(selectedEndDate.value);
     if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return 0;
     const diffTime = Math.abs(end - start);
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
 });
 
-// Format tanggal ke Bahasa Indonesia sederhana
-function formatDateDisplay(dateStr) {
-    if (!dateStr) return '-';
-    try {
-        const d = new Date(dateStr);
-        return d.toLocaleDateString('id-ID', {
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric',
-        });
-    } catch {
-        return dateStr;
+// Otomatis samakan tanggal akhir jika tanggal awal baru diisi
+function onStartDateChange(val) {
+    if (val && (!selectedEndDate.value || selectedEndDate.value < val)) {
+        selectedEndDate.value = new Date(val);
     }
 }
 
@@ -124,24 +116,39 @@ function removeFile() {
     }
 }
 
-// Otomatis samakan tanggal akhir jika tanggal awal baru diisi
-function onStartDateChange() {
-    if (form.start_date && (!form.end_date || form.end_date < form.start_date)) {
-        form.end_date = form.start_date;
-    }
-}
-
-// Submit permohonan
+// Submit permohonan dengan konversi tanggal ke YYYY-MM-DD
 function submitForm() {
+    if (selectedStartDate.value instanceof Date && !isNaN(selectedStartDate.value.getTime())) {
+        const y = selectedStartDate.value.getFullYear();
+        const m = String(selectedStartDate.value.getMonth() + 1).padStart(2, '0');
+        const d = String(selectedStartDate.value.getDate()).padStart(2, '0');
+        form.start_date = `${y}-${m}-${d}`;
+    } else if (typeof selectedStartDate.value === 'string' && selectedStartDate.value) {
+        form.start_date = selectedStartDate.value;
+    }
+
+    if (selectedEndDate.value instanceof Date && !isNaN(selectedEndDate.value.getTime())) {
+        const y = selectedEndDate.value.getFullYear();
+        const m = String(selectedEndDate.value.getMonth() + 1).padStart(2, '0');
+        const d = String(selectedEndDate.value.getDate()).padStart(2, '0');
+        form.end_date = `${y}-${m}-${d}`;
+    } else if (typeof selectedEndDate.value === 'string' && selectedEndDate.value) {
+        form.end_date = selectedEndDate.value;
+    }
+
     form.post('/izin/simpan', {
         preserveScroll: true,
         onSuccess: () => {
             toast.add({
                 severity: 'success',
-                summary: 'Berhasil',
+                summary: 'Berhasil Disimpan',
                 detail: 'Permohonan lapor tidak masuk kerja berhasil disimpan.',
                 life: 3000,
             });
+            form.reset('reason', 'attachment');
+            selectedStartDate.value = null;
+            selectedEndDate.value = null;
+            removeFile();
         },
         onError: (errors) => {
             const firstError = Object.values(errors)[0];
@@ -181,12 +188,14 @@ function submitForm() {
                 </p>
             </div>
 
-            <Link
-                href="/absensi"
-                class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 text-slate-700 bg-slate-50 hover:bg-slate-100 font-semibold text-xs sm:text-sm transition-colors shrink-0 self-start sm:self-auto"
-            >
-                <i class="pi pi-arrow-left text-xs" />
-                <span>Kembali ke Presensi</span>
+            <Link href="/absensi" class="shrink-0 self-start sm:self-auto">
+                <Button
+                    label="Kembali ke Presensi"
+                    icon="pi pi-arrow-left"
+                    severity="secondary"
+                    outlined
+                    size="small"
+                />
             </Link>
         </div>
 
@@ -203,7 +212,7 @@ function submitForm() {
                             Form Input Izin Tidak Hadir
                         </h2>
                         <p class="text-[11px] text-blue-100">
-                            PT Kimia Farma Plant Banjaran • Data langsung ke rekap Absensi
+                            PT Kimia Farma Plant Banjaran &bull; Data langsung ke rekap Absensi
                         </p>
                     </div>
                 </div>
@@ -234,24 +243,27 @@ function submitForm() {
                         Pegawai yang Mengajukan
                     </label>
 
-                    <!-- JIKA ADMIN (sesuai sesi_level == 1 di inputijin.php) -->
-                    <div v-if="isAdmin" class="space-y-2">
-                        <div class="relative">
-                            <select
+                    <!-- JIKA ADMIN (PrimeVue Select dengan IftaLabel) -->
+                    <div v-if="isAdmin" class="space-y-1.5">
+                        <IftaLabel class="w-full">
+                            <Select
+                                id="employee_nip"
+                                inputId="employee_nip"
                                 v-model="form.employee_nip"
-                                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC] transition-all"
-                                :class="{ 'border-rose-400': form.errors.employee_nip }"
-                            >
-                                <option value="" disabled>-- Pilih Pegawai KFPB --</option>
-                                <option
-                                    v-for="emp in employees"
-                                    :key="emp.nip"
-                                    :value="emp.nip"
-                                >
-                                    {{ emp.full_name }} (NIP: {{ emp.nip }})
-                                </option>
-                            </select>
-                        </div>
+                                :options="employees"
+                                optionLabel="label"
+                                optionValue="nip"
+                                filter
+                                filterPlaceholder="Ketik Nama atau NIP..."
+                                placeholder="Pilih Pegawai KFPB"
+                                class="w-full"
+                                :invalid="!!form.errors.employee_nip"
+                            />
+                            <label for="employee_nip">Pegawai KFPB yang Diajukan *</label>
+                        </IftaLabel>
+                        <small v-if="form.errors.employee_nip" class="text-red-500 block">
+                            {{ form.errors.employee_nip }}
+                        </small>
                         <p class="text-[11px] text-slate-500">
                             Sebagai Admin / HRD, Anda dapat mendaftarkan izin atas nama pegawai lain.
                         </p>
@@ -273,12 +285,12 @@ function submitForm() {
                         </div>
                         <div class="sm:col-span-2 pt-1 border-t border-slate-200/60 flex items-center gap-2 text-xs text-slate-600">
                             <i class="pi pi-briefcase text-slate-400" />
-                            <span>{{ authEmployee?.position || 'Staf' }} • {{ authEmployee?.division || 'Plant Banjaran' }}</span>
+                            <span>{{ authEmployee?.position || 'Staf' }} &bull; {{ authEmployee?.division || 'Plant Banjaran' }}</span>
                         </div>
                     </div>
                 </div>
 
-                <!-- 2. Rentang Tanggal Izin -->
+                <!-- 2. Rentang Tanggal Izin (PrimeVue DatePicker dengan IftaLabel) -->
                 <div class="space-y-2">
                     <div class="flex items-center justify-between">
                         <label class="block text-xs font-bold uppercase tracking-wider text-slate-700">
@@ -286,50 +298,56 @@ function submitForm() {
                         </label>
                         <span
                             v-if="estimatedDurationDays > 0"
-                            class="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-50 text-[#005BAC] text-xs font-bold border border-blue-200/60"
+                            class="inline-flex items-center px-2.5 py-0.5 rounded-full bg-blue-50 text-[#005BAC] text-xs font-bold border border-blue-200/70"
                         >
                             Estimasi: {{ estimatedDurationDays }} Hari Kerja
                         </span>
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                        <!-- Tanggal Awal -->
+                        <!-- Tanggal Awal (DatePicker) -->
                         <div>
-                            <span class="block text-[11px] font-semibold text-slate-600 mb-1">Tanggal Awal Izin</span>
-                            <div class="relative">
-                                <input
-                                    v-model="form.start_date"
-                                    type="date"
-                                    class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC] transition-all"
-                                    :class="{ 'border-rose-400': form.errors.start_date }"
-                                    @change="onStartDateChange"
+                            <IftaLabel class="w-full">
+                                <DatePicker
+                                    id="start_date"
+                                    inputId="start_date"
+                                    v-model="selectedStartDate"
+                                    class="w-full"
+                                    dateFormat="dd/mm/yy"
+                                    showIcon
+                                    :invalid="!!form.errors.start_date"
+                                    @update:modelValue="onStartDateChange"
                                 />
-                            </div>
-                            <span v-if="form.errors.start_date" class="block text-[11px] text-rose-600 mt-1">
+                                <label for="start_date">Tanggal Awal Izin *</label>
+                            </IftaLabel>
+                            <small v-if="form.errors.start_date" class="text-red-500 block mt-1">
                                 {{ form.errors.start_date }}
-                            </span>
+                            </small>
                         </div>
 
-                        <!-- Tanggal Akhir -->
+                        <!-- Tanggal Akhir (DatePicker) -->
                         <div>
-                            <span class="block text-[11px] font-semibold text-slate-600 mb-1">Tanggal Akhir Izin</span>
-                            <div class="relative">
-                                <input
-                                    v-model="form.end_date"
-                                    type="date"
-                                    :min="form.start_date || undefined"
-                                    class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC] transition-all"
-                                    :class="{ 'border-rose-400': form.errors.end_date }"
+                            <IftaLabel class="w-full">
+                                <DatePicker
+                                    id="end_date"
+                                    inputId="end_date"
+                                    v-model="selectedEndDate"
+                                    class="w-full"
+                                    dateFormat="dd/mm/yy"
+                                    :minDate="selectedStartDate || undefined"
+                                    showIcon
+                                    :invalid="!!form.errors.end_date"
                                 />
-                            </div>
-                            <span v-if="form.errors.end_date" class="block text-[11px] text-rose-600 mt-1">
+                                <label for="end_date">Tanggal Akhir Izin *</label>
+                            </IftaLabel>
+                            <small v-if="form.errors.end_date" class="text-red-500 block mt-1">
                                 {{ form.errors.end_date }}
-                            </span>
+                            </small>
                         </div>
                     </div>
                 </div>
 
-                <!-- 3. Jenis Izin (Sakit, Cuti, Dinas Luar, dsb) -->
+                <!-- 3. Jenis Izin (PrimeVue RadioButton) -->
                 <div class="space-y-2">
                     <label class="block text-xs font-bold uppercase tracking-wider text-slate-700">
                         Jenis Izin / Kategori Ketidakhadiran <span class="text-rose-500">*</span>
@@ -339,18 +357,19 @@ function submitForm() {
                         <label
                             v-for="pt in permissionTypes"
                             :key="pt.id"
-                            class="relative flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all select-none"
+                            :for="'pt_' + pt.id"
+                            class="relative flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all select-none"
                             :class="[
                                 form.permission_type_id === pt.id
-                                    ? 'bg-blue-50/70 border-[#005BAC] ring-1 ring-[#005BAC] shadow-sm'
+                                    ? 'bg-blue-50/70 border-[#005BAC] ring-1 ring-[#005BAC] shadow-xs'
                                     : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
                             ]"
                         >
-                            <input
+                            <RadioButton
                                 v-model="form.permission_type_id"
-                                type="radio"
+                                :inputId="'pt_' + pt.id"
                                 :value="pt.id"
-                                class="text-[#005BAC] focus:ring-[#005BAC]"
+                                class="mt-0.5"
                             />
                             <div class="flex-1">
                                 <p class="text-xs sm:text-sm font-bold text-slate-800">
@@ -368,27 +387,27 @@ function submitForm() {
                             </div>
                         </label>
                     </div>
-                    <span v-if="form.errors.permission_type_id" class="block text-[11px] text-rose-600 mt-1">
+                    <small v-if="form.errors.permission_type_id" class="text-red-500 block mt-1">
                         {{ form.errors.permission_type_id }}
-                    </span>
+                    </small>
                 </div>
 
-                <!-- 4. Keterangan / Alasan -->
-                <div class="space-y-1.5">
-                    <label for="reason" class="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                        Keterangan Tambahan / Alasan
-                    </label>
-                    <textarea
-                        id="reason"
-                        v-model="form.reason"
-                        rows="3"
-                        placeholder="Tuliskan keterangan contoh: Rawat inap RS, Cuti keperluan keluarga mendadak, Dinas keluar"
-                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC] transition-all resize-y"
-                        :class="{ 'border-rose-400': form.errors.reason }"
-                    />
-                    <span v-if="form.errors.reason" class="block text-[11px] text-rose-600">
+                <!-- 4. Keterangan / Alasan (PrimeVue Textarea dengan IftaLabel) -->
+                <div class="space-y-1">
+                    <IftaLabel class="w-full">
+                        <Textarea
+                            id="reason"
+                            v-model="form.reason"
+                            rows="3"
+                            placeholder=" "
+                            class="w-full"
+                            :invalid="!!form.errors.reason"
+                        />
+                        <label for="reason">Keterangan Tambahan / Alasan</label>
+                    </IftaLabel>
+                    <small v-if="form.errors.reason" class="text-red-500 block mt-1">
                         {{ form.errors.reason }}
-                    </span>
+                    </small>
                 </div>
 
                 <!-- 5. Lampiran Bukti Foto / Dokumen -->
@@ -399,7 +418,7 @@ function submitForm() {
 
                     <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3">
                         <label
-                            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs sm:text-sm font-semibold cursor-pointer transition-colors shadow-sm"
+                            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs sm:text-sm font-semibold cursor-pointer transition-colors shadow-xs"
                         >
                             <i class="pi pi-upload text-sm" />
                             <span>Pilih Berkas Lampiran</span>
@@ -417,7 +436,7 @@ function submitForm() {
                             <span class="truncate max-w-xs">{{ selectedFileName }}</span>
                             <button
                                 type="button"
-                                class="text-rose-600 hover:text-rose-800 p-0.5 ml-1"
+                                class="text-rose-600 hover:text-rose-800 p-0.5 ml-1 cursor-pointer"
                                 title="Hapus berkas"
                                 @click="removeFile"
                             >
@@ -436,29 +455,30 @@ function submitForm() {
                         </div>
                     </div>
 
-                    <span v-if="form.errors.attachment" class="block text-[11px] text-rose-600">
+                    <small v-if="form.errors.attachment" class="text-red-500 block mt-1">
                         {{ form.errors.attachment }}
-                    </span>
+                    </small>
                 </div>
 
-                <!-- 6. Action Buttons -->
+                <!-- 6. Action Buttons (PrimeVue Button) -->
                 <div class="pt-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-center gap-3">
-                    <button
+                    <Button
+                        label="Simpan Permohonan"
+                        icon="pi pi-check"
                         type="submit"
                         :disabled="form.processing"
-                        class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-[#005BAC] text-white hover:bg-[#004785] font-bold text-xs sm:text-sm shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        <i v-if="form.processing" class="pi pi-spin pi-spinner text-sm" />
-                        <i v-else class="pi pi-check text-sm" />
-                        <span>{{ form.processing ? 'Menyimpan Permohonan...' : 'Simpan' }}</span>
-                    </button>
+                        :loading="form.processing"
+                        class="w-full sm:w-auto"
+                    />
 
-                    <Link
-                        href="/absensi"
-                        class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 font-semibold text-xs sm:text-sm transition-colors text-center"
-                    >
-                        <i class="pi pi-times text-xs" />
-                        <span>Batal</span>
+                    <Link href="/absensi" class="w-full sm:w-auto">
+                        <Button
+                            label="Batal"
+                            icon="pi pi-times"
+                            severity="secondary"
+                            outlined
+                            class="w-full sm:w-auto"
+                        />
                     </Link>
                 </div>
             </form>

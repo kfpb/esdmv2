@@ -1,7 +1,15 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link, router } from '@inertiajs/vue3';
-import { ref, reactive } from 'vue';
+import { ref, reactive, computed } from 'vue';
+import Card from 'primevue/card';
+import DataTable from 'primevue/datatable';
+import Column from 'primevue/column';
+import Tag from 'primevue/tag';
+import InputText from 'primevue/inputtext';
+import Select from 'primevue/select';
+import Button from 'primevue/button';
+import { exportTableToPdf } from '@/Utils/exportPdf';
 
 defineOptions({ layout: AuthenticatedLayout });
 
@@ -39,7 +47,7 @@ const props = defineProps({
     },
 });
 
-// State filter formulir
+// State filter formulir utama
 const filterForm = reactive({
     bulan: props.filters.bulan || 'all',
     tahun: props.filters.tahun || new Date().getFullYear().toString(),
@@ -47,6 +55,10 @@ const filterForm = reactive({
     q: props.filters.q || '',
     per_page: props.filters.per_page || 25,
 });
+
+// State pencarian instan pada tabel dan seleksi baris
+const instantSearch = ref('');
+const selectedPermissions = ref([]);
 
 // State Modal Detail & Pratinjau Lampiran
 const showDetailModal = ref(false);
@@ -68,12 +80,38 @@ const bulanList = [
     { value: '12', label: 'Desember' },
 ];
 
+const jenisOptions = computed(() => [
+    { id: '', name: '-- Semua Kategori --' },
+    ...props.permissionTypes,
+]);
+
+const tahunOptions = computed(() => [
+    { value: 'all', label: '-- Semua Tahun --' },
+    ...props.years.map((y) => ({ value: y.toString(), label: y.toString() })),
+]);
+
+// Computed filter data instan di tabel
+const filteredPermissions = computed(() => {
+    const list = props.permissions.data || [];
+    if (!instantSearch.value.trim()) return list;
+    const query = instantSearch.value.toLowerCase().trim();
+    return list.filter((item) => {
+        return (
+            (item.nip && item.nip.toLowerCase().includes(query)) ||
+            (item.nama_pegawai && item.nama_pegawai.toLowerCase().includes(query)) ||
+            (item.bagian && item.bagian.toLowerCase().includes(query)) ||
+            (item.nama_ijin && item.nama_ijin.toLowerCase().includes(query)) ||
+            (item.keterangan && item.keterangan.toLowerCase().includes(query))
+        );
+    });
+});
+
 function applyFilter() {
     router.get('/admin/izin', {
         bulan: filterForm.bulan,
         tahun: filterForm.tahun,
         jenis: filterForm.jenis,
-        q: filterForm.q,
+        q: filterForm.q || instantSearch.value,
         per_page: filterForm.per_page,
     }, {
         preserveState: true,
@@ -87,6 +125,7 @@ function resetFilter() {
     filterForm.jenis = '';
     filterForm.q = '';
     filterForm.per_page = 25;
+    instantSearch.value = '';
     applyFilter();
 }
 
@@ -100,17 +139,57 @@ function closeDetail() {
     activeDetail.value = null;
 }
 
-function getBadgeStyle(idIjin) {
+function permissionSeverity(idIjin) {
     switch (parseInt(idIjin)) {
         case 2: // Sakit
-            return 'bg-rose-50 text-rose-700 border-rose-200';
+            return 'danger';
         case 3: // Cuti
-            return 'bg-blue-50 text-blue-700 border-blue-200';
+            return 'info';
         case 5: // Dinas Luar
-            return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+            return 'success';
         default:
-            return 'bg-slate-100 text-slate-700 border-slate-200';
+            return 'secondary';
     }
+}
+
+function handleExportPdf() {
+    const dataToExport = filteredPermissions.value;
+    if (!dataToExport || dataToExport.length === 0) {
+        alert('Tidak ada data izin yang dapat diekspor.');
+        return;
+    }
+
+    const bulanObj = bulanList.find((b) => b.value === filterForm.bulan);
+    const bulanLabel = bulanObj ? bulanObj.label : 'Semua Bulan';
+    const tahunLabel = filterForm.tahun === 'all' ? 'Semua Tahun' : filterForm.tahun;
+    const selectedType = props.permissionTypes.find((pt) => pt.id.toString() === filterForm.jenis);
+    const jenisLabel = selectedType ? selectedType.name : 'Semua Kategori';
+
+    exportTableToPdf({
+        title: 'REKAPITULASI LAPORAN IZIN KETIDAKHADIRAN PEGAWAI',
+        subtitle: 'Sistem Elektronik Sumber Daya Manusia (eSDM) - Plant Banjaran',
+        documentNo: 'KFPB-SDM-IZIN-01',
+        metaInfo: [
+            { label: 'Bulan', value: bulanLabel },
+            { label: 'Tahun', value: tahunLabel },
+            { label: 'Kategori Izin', value: jenisLabel },
+            { label: 'Kata Kunci', value: instantSearch.value || filterForm.q || 'Semua Data' },
+        ],
+        columns: [
+            { header: 'No', width: '35px', align: 'center', render: (row, idx) => idx + 1 },
+            { header: 'NIP', field: 'nip', width: '75px' },
+            { header: 'Nama Pegawai', field: 'nama_pegawai' },
+            { header: 'Bagian', field: 'bagian' },
+            { header: 'Kategori', field: 'nama_ijin', width: '90px' },
+            {
+                header: 'Periode Tanggal',
+                render: (row) => row.tgl_awal === row.tgl_akhir ? row.tgl_awal : `${row.tgl_awal} s/d ${row.tgl_akhir}`,
+            },
+            { header: 'Durasi', align: 'center', width: '60px', render: (row) => `${row.durasi} Hari` },
+            { header: 'Keterangan', field: 'keterangan' },
+        ],
+        data: dataToExport,
+    });
 }
 </script>
 
@@ -137,9 +216,17 @@ function getBadgeStyle(idIjin) {
 
             <!-- Tombol Aksi Cepat Admin -->
             <div class="flex items-center gap-2 shrink-0 self-start sm:self-auto">
+                <Button
+                    label="Export PDF"
+                    icon="pi pi-file-pdf"
+                    severity="danger"
+                    outlined
+                    size="small"
+                    @click="handleExportPdf"
+                />
                 <Link
                     href="/izin/buat"
-                    class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#005BAC] text-white hover:bg-[#004785] font-semibold text-xs sm:text-sm transition-colors shadow-sm"
+                    class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#005BAC] text-white hover:bg-[#004785] font-semibold text-xs sm:text-sm transition-colors shadow-sm"
                 >
                     <i class="pi pi-plus text-xs" />
                     <span>Input Izin Manual</span>
@@ -147,7 +234,7 @@ function getBadgeStyle(idIjin) {
             </div>
         </div>
 
-        <!-- ================= 4 KARTU STATISTIK RINGKAS (TANPA GRAFIK LEBAY) ================= -->
+        <!-- ================= 4 KARTU STATISTIK RINGKAS ================= -->
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
             <!-- Total Izin -->
             <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-sm flex items-center justify-between">
@@ -166,7 +253,7 @@ function getBadgeStyle(idIjin) {
                 <div>
                     <span class="text-[11px] font-bold text-rose-500 uppercase tracking-wider block">Izin Sakit</span>
                     <span class="text-xl sm:text-2xl font-bold font-mono text-slate-800">{{ statistics.sakit.toLocaleString('id-ID') }}</span>
-                    <span class="text-[10px] text-slate-400 block mt-0.5">Surat Keterangan Dokter</span>
+                    <span class="text-[10px] text-slate-400 block mt-0.5">Surat Dokter</span>
                 </div>
                 <div class="size-10 rounded-xl bg-rose-50 flex items-center justify-center text-rose-600 border border-rose-100">
                     <i class="pi pi-heart text-base" />
@@ -190,7 +277,7 @@ function getBadgeStyle(idIjin) {
                 <div>
                     <span class="text-[11px] font-bold text-emerald-600 uppercase tracking-wider block">Dinas Luar</span>
                     <span class="text-xl sm:text-2xl font-bold font-mono text-slate-800">{{ statistics.dinas.toLocaleString('id-ID') }}</span>
-                    <span class="text-[10px] text-slate-400 block mt-0.5">Tugas Kantor / Luar Kota</span>
+                    <span class="text-[10px] text-slate-400 block mt-0.5">Tugas Kantor</span>
                 </div>
                 <div class="size-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 border border-emerald-100">
                     <i class="pi pi-briefcase text-base" />
@@ -198,265 +285,228 @@ function getBadgeStyle(idIjin) {
             </div>
         </div>
 
-        <!-- ================= PANEL FILTER PENCARIAN ================= -->
-        <div class="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-sm">
-            <form @submit.prevent="applyFilter" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 items-end">
-                <!-- Bulan -->
-                <div>
-                    <label class="block text-[11px] font-bold text-slate-600 mb-1">Bulan</label>
-                    <select
-                        v-model="filterForm.bulan"
-                        class="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC]"
-                    >
-                        <option v-for="b in bulanList" :key="b.value" :value="b.value">
-                            {{ b.label }}
-                        </option>
-                    </select>
-                </div>
+        <!-- ================= CARD DATATABLE STANDAR /DATATABLE ================= -->
+        <Card class="shadow-sm border border-slate-200/80 rounded-2xl overflow-hidden">
+            <!-- Toolbar Header -->
+            <template #header>
+                <div class="flex flex-col gap-4 px-6 pt-5 pb-4 border-b border-slate-200/80 bg-slate-50/50">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <div class="flex items-center gap-2">
+                            <i class="pi pi-table text-[#005BAC] text-sm" />
+                            <span class="text-sm font-bold text-slate-800 uppercase tracking-wider">
+                                Rekapitulasi Izin Tidak Hadir
+                            </span>
+                            <span class="px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-700 text-xs font-mono font-bold">
+                                {{ permissions.total?.toLocaleString('id-ID') || filteredPermissions.length }} Data
+                            </span>
+                        </div>
 
-                <!-- Tahun -->
-                <div>
-                    <label class="block text-[11px] font-bold text-slate-600 mb-1">Tahun</label>
-                    <select
-                        v-model="filterForm.tahun"
-                        class="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC]"
-                    >
-                        <option value="all">-- Semua Tahun --</option>
-                        <option v-for="y in years" :key="y" :value="y.toString()">
-                            {{ y }}
-                        </option>
-                    </select>
-                </div>
+                        <!-- Export PDF & Reset Toolbar Button -->
+                        <div class="flex items-center gap-2">
+                            <span v-if="selectedPermissions.length" class="text-xs text-slate-600 font-medium">
+                                {{ selectedPermissions.length }} terpilih
+                            </span>
+                            <Button
+                                label="Export PDF"
+                                icon="pi pi-file-pdf"
+                                severity="danger"
+                                outlined
+                                size="small"
+                                @click="handleExportPdf"
+                            />
+                        </div>
+                    </div>
 
-                <!-- Jenis Izin -->
-                <div>
-                    <label class="block text-[11px] font-bold text-slate-600 mb-1">Jenis Izin</label>
-                    <select
-                        v-model="filterForm.jenis"
-                        class="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC]"
-                    >
-                        <option value="">-- Semua Kategori --</option>
-                        <option v-for="pt in permissionTypes" :key="pt.id" :value="pt.id.toString()">
-                            {{ pt.name }}
-                        </option>
-                    </select>
-                </div>
+                    <!-- Filter Controls Grid -->
+                    <div class="flex flex-wrap items-center gap-2.5">
+                        <InputText
+                            v-model="instantSearch"
+                            placeholder="Cari NIP, nama, bagian..."
+                            class="w-full sm:w-60"
+                        >
+                            <template #prefix><i class="pi pi-search text-slate-400" /></template>
+                        </InputText>
 
-                <!-- Pencarian NPP / Nama -->
-                <div>
-                    <label class="block text-[11px] font-bold text-slate-600 mb-1">NPP / Nama Pegawai</label>
-                    <div class="relative">
-                        <input
-                            v-model="filterForm.q"
-                            type="text"
-                            placeholder="Cari NIP atau nama..."
-                            class="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-300 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC]"
+                        <Select
+                            v-model="filterForm.jenis"
+                            :options="jenisOptions"
+                            optionLabel="name"
+                            optionValue="id"
+                            placeholder="Kategori Izin"
+                            class="w-full sm:w-44"
+                            @change="applyFilter"
                         />
-                        <i class="pi pi-search absolute left-2.5 top-2.5 text-slate-400 text-xs" />
+
+                        <Select
+                            v-model="filterForm.bulan"
+                            :options="bulanList"
+                            optionLabel="label"
+                            optionValue="value"
+                            placeholder="Pilih Bulan"
+                            class="w-full sm:w-40"
+                            @change="applyFilter"
+                        />
+
+                        <Select
+                            v-model="filterForm.tahun"
+                            :options="tahunOptions"
+                            optionLabel="label"
+                            optionValue="value"
+                            placeholder="Pilih Tahun"
+                            class="w-full sm:w-36"
+                            @change="applyFilter"
+                        />
+
+                        <Button
+                            label="Filter"
+                            icon="pi pi-filter"
+                            size="small"
+                            @click="applyFilter"
+                        />
+                        <Button
+                            icon="pi pi-refresh"
+                            severity="secondary"
+                            outlined
+                            size="small"
+                            title="Reset Filter"
+                            @click="resetFilter"
+                        />
                     </div>
                 </div>
+            </template>
 
-                <!-- Tombol Filter & Reset -->
-                <div class="flex items-center gap-2">
-                    <button
-                        type="submit"
-                        class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#005BAC] text-white hover:bg-[#004785] font-semibold text-xs shadow-sm transition-colors"
-                    >
-                        <i class="pi pi-filter text-[11px]" />
-                        <span>Filter</span>
-                    </button>
-                    <button
-                        type="button"
-                        class="px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-xs transition-colors"
-                        title="Reset Filter"
-                        @click="resetFilter"
-                    >
-                        <i class="pi pi-refresh text-[11px]" />
-                    </button>
+            <!-- Content Datatable -->
+            <template #content>
+                <DataTable
+                    v-model:selection="selectedPermissions"
+                    :value="filteredPermissions"
+                    dataKey="id"
+                    paginator
+                    :rows="10"
+                    :rowsPerPageOptions="[10, 25, 50, 100]"
+                    sortMode="multiple"
+                    removableSort
+                    stripedRows
+                    tableStyle="min-width: 65rem"
+                >
+                    <Column selectionMode="multiple" headerStyle="width: 3rem" />
+                    <Column field="id" header="No" sortable style="width: 4rem" class="text-center">
+                        <template #body="{ index }">
+                            <span class="font-mono text-slate-400 text-xs">
+                                {{ (permissions.current_page - 1) * permissions.per_page + index + 1 }}
+                            </span>
+                        </template>
+                    </Column>
+                    <Column field="nip" header="NPP / NIP" sortable style="width: 7.5rem">
+                        <template #body="{ data }">
+                            <span class="font-mono font-bold text-slate-900">{{ data.nip }}</span>
+                        </template>
+                    </Column>
+                    <Column field="nama_pegawai" header="Nama Pegawai" sortable>
+                        <template #body="{ data }">
+                            <span class="font-semibold text-slate-800">{{ data.nama_pegawai }}</span>
+                        </template>
+                    </Column>
+                    <Column field="bagian" header="Bagian" sortable>
+                        <template #body="{ data }">
+                            <span class="text-slate-600 text-xs">{{ data.bagian }}</span>
+                        </template>
+                    </Column>
+                    <Column field="nama_ijin" header="Kategori Izin" sortable style="width: 8rem">
+                        <template #body="{ data }">
+                            <Tag :value="data.nama_ijin" :severity="permissionSeverity(data.id_ijin)" rounded />
+                        </template>
+                    </Column>
+                    <Column field="tgl_awal" header="Periode Tanggal" sortable style="width: 10rem">
+                        <template #body="{ data }">
+                            <div class="font-mono text-xs text-slate-600 whitespace-nowrap">
+                                <span>{{ data.tgl_awal }}</span>
+                                <span v-if="data.tgl_awal !== data.tgl_akhir" class="text-slate-400"> s/d {{ data.tgl_akhir }}</span>
+                            </div>
+                        </template>
+                    </Column>
+                    <Column field="durasi" header="Durasi" sortable class="text-center" style="width: 6rem">
+                        <template #body="{ data }">
+                            <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-mono text-[11px] font-semibold">
+                                {{ data.durasi }} Hari
+                            </span>
+                        </template>
+                    </Column>
+                    <Column field="keterangan" header="Keterangan">
+                        <template #body="{ data }">
+                            <span class="line-clamp-2 text-slate-600 text-xs" :title="data.keterangan">
+                                {{ data.keterangan || '-' }}
+                            </span>
+                        </template>
+                    </Column>
+                    <Column header="Lampiran" class="text-center" style="width: 5.5rem">
+                        <template #body="{ data }">
+                            <button
+                                v-if="data.lampiran_url"
+                                type="button"
+                                class="size-8 rounded-lg border border-slate-200 overflow-hidden hover:ring-2 hover:ring-[#005BAC]/50 transition-all shadow-2xs inline-flex items-center justify-center cursor-pointer"
+                                title="Lihat Berkas Lampiran"
+                                @click="openDetail(data)"
+                            >
+                                <img
+                                    :src="data.lampiran_url"
+                                    alt="Lampiran"
+                                    class="size-full object-cover"
+                                />
+                            </button>
+                            <span v-else class="text-slate-300 text-xs">-</span>
+                        </template>
+                    </Column>
+                    <Column header="Aksi" class="text-center" style="width: 6.5rem">
+                        <template #body="{ data }">
+                            <Button
+                                icon="pi pi-eye"
+                                label="Detail"
+                                text
+                                size="small"
+                                severity="info"
+                                @click="openDetail(data)"
+                            />
+                        </template>
+                    </Column>
+                </DataTable>
+
+                <!-- Server Pagination Links jika data bertingkat per halaman -->
+                <div
+                    v-if="permissions.total > permissions.per_page"
+                    class="px-5 py-3.5 border-t border-slate-200 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600"
+                >
+                    <div>
+                        Menampilkan <span class="font-bold font-mono">{{ permissions.from || 0 }}</span> sampai
+                        <span class="font-bold font-mono">{{ permissions.to || 0 }}</span> dari
+                        <span class="font-bold font-mono">{{ permissions.total?.toLocaleString('id-ID') }}</span> data izin
+                    </div>
+
+                    <div class="flex items-center gap-1">
+                        <template v-for="(link, lIdx) in permissions.links" :key="lIdx">
+                            <Link
+                                v-if="link.url"
+                                :href="link.url"
+                                class="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors"
+                                :class="[
+                                    link.active
+                                        ? 'bg-[#005BAC] text-white border-[#005BAC] font-bold'
+                                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                                ]"
+                                v-html="link.label"
+                                preserve-scroll
+                                preserve-state
+                            />
+                            <span
+                                v-else
+                                class="px-3 py-1.5 rounded-lg border border-slate-100 text-slate-300 text-xs"
+                                v-html="link.label"
+                            />
+                        </template>
+                    </div>
                 </div>
-            </form>
-        </div>
-
-        <!-- ================= TABEL DATA REKAPITULASI ================= -->
-        <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
-            <!-- Table Sub-header -->
-            <div class="px-5 py-3.5 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between flex-wrap gap-2">
-                <div class="flex items-center gap-2">
-                    <i class="pi pi-list text-slate-500 text-xs" />
-                    <span class="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                        Daftar Riwayat Izin Pegawai
-                    </span>
-                    <span class="px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 text-[10px] font-mono font-bold">
-                        {{ permissions.total?.toLocaleString('id-ID') || 0 }} Baris
-                    </span>
-                </div>
-
-                <!-- Per Page Selector -->
-                <div class="flex items-center gap-2 text-xs text-slate-500">
-                    <span>Tampilkan</span>
-                    <select
-                        v-model="filterForm.per_page"
-                        class="px-2 py-1 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none"
-                        @change="applyFilter"
-                    >
-                        <option :value="25">25</option>
-                        <option :value="50">50</option>
-                        <option :value="100">100</option>
-                    </select>
-                    <span>per halaman</span>
-                </div>
-            </div>
-
-            <!-- Table Responsive Container -->
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs text-slate-700">
-                    <thead class="bg-slate-100/70 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px] tracking-wider">
-                        <tr>
-                            <th class="py-3 px-3.5 text-center w-12">No</th>
-                            <th class="py-3 px-3.5">NPP / NIP</th>
-                            <th class="py-3 px-3.5">Nama Pegawai</th>
-                            <th class="py-3 px-3.5">Bagian</th>
-                            <th class="py-3 px-3.5">Kategori Izin</th>
-                            <th class="py-3 px-3.5">Periode Tanggal</th>
-                            <th class="py-3 px-3.5 text-center">Durasi</th>
-                            <th class="py-3 px-3.5 max-w-xs">Keterangan</th>
-                            <th class="py-3 px-3.5 text-center w-24">Lampiran</th>
-                            <th class="py-3 px-3.5 text-center w-20">Aksi</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        <tr
-                            v-for="(item, idx) in permissions.data"
-                            :key="item.id"
-                            class="hover:bg-slate-50/80 transition-colors"
-                        >
-                            <!-- No -->
-                            <td class="py-3 px-3.5 text-center text-slate-400 font-mono text-[11px]">
-                                {{ (permissions.current_page - 1) * permissions.per_page + idx + 1 }}
-                            </td>
-
-                            <!-- NIP -->
-                            <td class="py-3 px-3.5 font-mono font-bold text-slate-900">
-                                {{ item.nip }}
-                            </td>
-
-                            <!-- Nama -->
-                            <td class="py-3 px-3.5 font-medium text-slate-800">
-                                {{ item.nama_pegawai }}
-                            </td>
-
-                            <!-- Bagian -->
-                            <td class="py-3 px-3.5 text-slate-600">
-                                {{ item.bagian }}
-                            </td>
-
-                            <!-- Jenis Izin (Badge) -->
-                            <td class="py-3 px-3.5">
-                                <span
-                                    class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold border"
-                                    :class="getBadgeStyle(item.id_ijin)"
-                                >
-                                    {{ item.nama_ijin }}
-                                </span>
-                            </td>
-
-                            <!-- Tanggal -->
-                            <td class="py-3 px-3.5 font-mono text-slate-600 whitespace-nowrap">
-                                <span>{{ item.tgl_awal }}</span>
-                                <span v-if="item.tgl_awal !== item.tgl_akhir" class="text-slate-400"> s/d {{ item.tgl_akhir }}</span>
-                            </td>
-
-                            <!-- Durasi -->
-                            <td class="py-3 px-3.5 text-center font-semibold text-slate-700 whitespace-nowrap">
-                                <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-mono text-[11px]">
-                                    {{ item.durasi }} Hari
-                                </span>
-                            </td>
-
-                            <!-- Keterangan -->
-                            <td class="py-3 px-3.5 max-w-xs text-slate-600 truncate" :title="item.keterangan">
-                                {{ item.keterangan }}
-                            </td>
-
-                            <!-- Lampiran Foto / Bukti -->
-                            <td class="py-3 px-3.5 text-center">
-                                <div v-if="item.lampiran_url" class="inline-flex items-center justify-center">
-                                    <button
-                                        type="button"
-                                        class="group relative size-9 rounded-lg border border-slate-200 overflow-hidden hover:ring-2 hover:ring-[#005BAC]/50 transition-all shadow-xs"
-                                        title="Klik untuk melihat lampiran"
-                                        @click="openDetail(item)"
-                                    >
-                                        <img
-                                            :src="item.lampiran_url"
-                                            alt="Bukti Izin"
-                                            class="size-full object-cover group-hover:scale-110 transition-transform duration-200"
-                                        />
-                                    </button>
-                                </div>
-                                <span v-else class="text-slate-400 text-xs">-</span>
-                            </td>
-
-                            <!-- Aksi -->
-                            <td class="py-3 px-3.5 text-center">
-                                <button
-                                    type="button"
-                                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-colors"
-                                    title="Lihat Detail Izin"
-                                    @click="openDetail(item)"
-                                >
-                                    <i class="pi pi-eye text-[11px]" />
-                                    <span>Detail</span>
-                                </button>
-                            </td>
-                        </tr>
-
-                        <!-- Empty State -->
-                        <tr v-if="permissions.data.length === 0">
-                            <td colspan="10" class="py-12 text-center text-slate-400">
-                                <i class="pi pi-inbox text-3xl mb-2 block text-slate-300" />
-                                <span class="font-medium text-xs">Tidak ada data izin yang sesuai dengan filter saat ini.</span>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- ================= PAGINATION BAR ================= -->
-            <div
-                v-if="permissions.total > 0"
-                class="px-5 py-3.5 border-t border-slate-200 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600"
-            >
-                <div>
-                    Menampilkan <span class="font-bold font-mono">{{ permissions.from || 0 }}</span> sampai
-                    <span class="font-bold font-mono">{{ permissions.to || 0 }}</span> dari
-                    <span class="font-bold font-mono">{{ permissions.total?.toLocaleString('id-ID') }}</span> data izin
-                </div>
-
-                <div class="flex items-center gap-1">
-                    <template v-for="(link, lIdx) in permissions.links" :key="lIdx">
-                        <Link
-                            v-if="link.url"
-                            :href="link.url"
-                            class="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors"
-                            :class="[
-                                link.active
-                                    ? 'bg-[#005BAC] text-white border-[#005BAC] font-bold'
-                                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-                            ]"
-                            v-html="link.label"
-                            preserve-scroll
-                            preserve-state
-                        />
-                        <span
-                            v-else
-                            class="px-3 py-1.5 rounded-lg border border-slate-100 text-slate-300 text-xs"
-                            v-html="link.label"
-                        />
-                    </template>
-                </div>
-            </div>
-        </div>
+            </template>
+        </Card>
 
         <!-- ================= MODAL DETAIL & PRATINJAU LAMPIRAN BUKTI ================= -->
         <div
@@ -475,13 +525,13 @@ function getBadgeStyle(idIjin) {
                                 Detail Izin Tidak Hadir Pegawai
                             </h3>
                             <p class="text-[11px] text-slate-500">
-                                NIP: {{ activeDetail.nip }} • {{ activeDetail.nama_pegawai }}
+                                NIP: {{ activeDetail.nip }} &bull; {{ activeDetail.nama_pegawai }}
                             </p>
                         </div>
                     </div>
                     <button
                         type="button"
-                        class="size-8 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 flex items-center justify-center transition-colors"
+                        class="size-8 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 flex items-center justify-center transition-colors cursor-pointer"
                         @click="closeDetail"
                     >
                         <i class="pi pi-times text-sm" />
@@ -531,7 +581,7 @@ function getBadgeStyle(idIjin) {
                                 class="inline-flex items-center gap-1 text-xs text-[#005BAC] hover:underline font-semibold"
                             >
                                 <i class="pi pi-external-link text-[11px]" />
-                                <span>Buka Ukuran Asli / Tab Baru</span>
+                                <span>Buka Ukuran Asli</span>
                             </a>
                         </div>
 
@@ -556,7 +606,7 @@ function getBadgeStyle(idIjin) {
                     </span>
                     <button
                         type="button"
-                        class="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold text-xs transition-colors"
+                        class="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
                         @click="closeDetail"
                     >
                         Tutup
@@ -567,4 +617,3 @@ function getBadgeStyle(idIjin) {
 
     </div>
 </template>
-

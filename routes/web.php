@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\AttendanceController;
+use App\Http\Controllers\ExitPermitController;
 use App\Http\Controllers\PermissionRequestController;
 use App\Http\Controllers\MasterData\DivisionController;
 use App\Http\Controllers\MasterData\SubDivisionController;
@@ -49,6 +50,7 @@ Route::middleware('auth')->group(function () {
     // ===== Portal Pegawai — Presensi Mandiri =====
     Route::prefix('absensi')->name('absensi.')->group(function () {
         Route::get('/', [AttendanceController::class, 'employeeDashboard'])->name('dashboard');
+        Route::get('/laporan', [AttendanceController::class, 'employeeReport'])->name('laporan');
         Route::post('/masuk',  [AttendanceController::class, 'checkIn'])->name('masuk');
         Route::post('/pulang', [AttendanceController::class, 'checkOut'])->name('pulang');
     });
@@ -59,8 +61,24 @@ Route::middleware('auth')->group(function () {
         Route::post('/simpan', [PermissionRequestController::class, 'store'])->name('store');
     });
 
-    // ===== Laporan & Rekapitulasi Izin Pegawai (Admin / HRD) =====
+    //  Laporan & Rekapitulasi Izin Pegawai admin 
     Route::get('/admin/izin', [PermissionRequestController::class, 'index'])->name('admin.izin.index');
+
+    //  Modul Izin Keluar Kantor (Layanan Pegawai, Approval Atasan & Scanner Satpam)
+    Route::prefix('izin-keluar')->name('izin-keluar.')->group(function () {
+        Route::get('/', [ExitPermitController::class, 'employeeIndex'])->name('index');
+        Route::post('/', [ExitPermitController::class, 'store'])->name('store');
+        Route::post('/{exitPermit}/approval', [ExitPermitController::class, 'supervisorApproval'])->name('approval');
+        Route::get('/status/{exitPermit}', [ExitPermitController::class, 'checkTicketStatus'])->name('ticket-status');
+        Route::get('/scan', [ExitPermitController::class, 'securityIndex'])->name('scanner');
+        Route::post('/scan/process', [ExitPermitController::class, 'securityProcessScan'])->name('scan-process');
+    });
+
+    //  Pusat Verifikasi & Rekap Izin Keluar Kantor Admin
+    Route::prefix('admin/izin-keluar')->name('admin.izin-keluar.')->group(function () {
+        Route::get('/', [ExitPermitController::class, 'adminIndex'])->name('index');
+        Route::post('/{exitPermit}/status', [ExitPermitController::class, 'updateStatus'])->name('status');
+    });
 
     // ===== Master Data (Admin / HRD) =====
     Route::prefix('admin')->name('admin.')->group(function () {

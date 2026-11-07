@@ -51,4 +51,33 @@ class User extends Authenticatable
     {
         return in_array($this->role, ['admin', 'superadmin', 'director', 'hrd', 'supervisor']);
     }
+
+    public function isSecurity(): bool
+    {
+        return str_starts_with($this->username ?? '', 'SC_')
+            || str_starts_with($this->employee_nip ?? '', 'SC_')
+            || $this->role === 'security'
+            || $this->isAdmin();
+    }
+
+    public function isSupervisor(): bool
+    {
+        if (in_array($this->role, ['supervisor', 'admin', 'superadmin', 'director'])) {
+            return true;
+        }
+
+        // Cek apakah NIP ini memiliki bawahan di struktur organisasi (OrganizationStructure)
+        if (! empty($this->employee_nip)) {
+            try {
+                $node = OrganizationStructure::findByNip($this->employee_nip);
+                if ($node && $node->children()->exists()) {
+                    return true;
+                }
+            } catch (\Throwable $e) {
+                // Ignore fallback
+            }
+        }
+
+        return false;
+    }
 }
