@@ -175,38 +175,17 @@ const userMenuItems = computed(() => {
 // Notifications Popover State
 const showNotifications = ref(false);
 const notificationWrapper = ref(null);
-const notifications = ref([
-    {
-        id: 1,
-        title: 'Pengajuan Lembur Tim Fette',
-        user: 'Ahmad Fauzi (Div. Produksi)',
-        time: '5 menit yang lalu',
-        type: 'lembur',
-        badge: 'SPL Menunggu',
-        badgeClass: 'bg-amber-100 text-amber-700',
-        icon: 'pi pi-clock text-amber-600 bg-amber-50',
-    },
-    {
-        id: 2,
-        title: 'Permohonan Cuti Tahunan',
-        user: 'Siti Sarah Nabila (Div. SDM)',
-        time: '35 menit yang lalu',
-        type: 'cuti',
-        badge: 'Cuti 3 Hari',
-        badgeClass: 'bg-indigo-100 text-indigo-700',
-        icon: 'pi pi-calendar-plus text-indigo-600 bg-indigo-50',
-    },
-    {
-        id: 3,
-        title: 'Izin Keluar Kantor (Dinas Luar)',
-        user: 'dr. Farah Anggraini (Poliklinik)',
-        time: '2 jam yang lalu',
-        type: 'izin',
-        badge: 'Dinas Luar',
-        badgeClass: 'bg-orange-100 text-[#F37021]',
-        icon: 'pi pi-external-link text-[#F37021] bg-orange-50',
-    },
-]);
+
+const notificationsData = computed(() => page.props.notifications || { count: 0, items: [] });
+const notificationCount = computed(() => notificationsData.value.count || 0);
+const notifications = computed(() => notificationsData.value.items || []);
+
+const handleNotificationClick = (item) => {
+    showNotifications.value = false;
+    if (item.url && item.url !== '#') {
+        router.visit(item.url);
+    }
+};
 
 // Quick Search Modal State
 const searchModalOpen = ref(false);
@@ -1101,8 +1080,13 @@ const isCurrentUrl = (path) => {
                                 </li>
                                 <li>
                                     <Link
-                                        href="/forms"
-                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                        href="/lembur/ajukan"
+                                        :class="[
+                                            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/lembur/ajukan')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
                                     >
                                         <span class="size-1.5 rounded-full bg-current shrink-0" />
                                         <span>Pengajuan Lembur (SPL Saya)</span>
@@ -1324,12 +1308,15 @@ const isCurrentUrl = (path) => {
                                 type="button"
                                 class="relative p-2 rounded-xl text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer"
                                 @click="showNotifications = !showNotifications"
-                                title="Notifikasi Persetujuan"
+                                title="Pusat Pemberitahuan & Tugas"
                             >
                                 <i class="pi pi-bell text-lg" />
                                 <span
-                                    class="absolute top-1.5 right-1.5 size-2 rounded-full bg-rose-500 ring-2 ring-white animate-pulse"
-                                />
+                                    v-if="notificationCount > 0"
+                                    class="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-rose-600 text-white font-bold text-[10px] flex items-center justify-center ring-2 ring-white shadow-xs"
+                                >
+                                    {{ notificationCount > 99 ? '99+' : notificationCount }}
+                                </span>
                             </button>
 
                             <!-- Notification Dropdown Popover -->
@@ -1340,54 +1327,61 @@ const isCurrentUrl = (path) => {
                                 <div class="flex items-center justify-between pb-3 border-b border-slate-100">
                                     <div class="flex items-center gap-2">
                                         <h3 class="text-xs font-bold text-slate-800">Pemberitahuan</h3>
-                                        <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700">3 Baru</span>
+                                        <span
+                                            v-if="notificationCount > 0"
+                                            class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700"
+                                        >
+                                            {{ notificationCount }} Baru
+                                        </span>
+                                        <span
+                                            v-else
+                                            class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500"
+                                        >
+                                            Tidak ada baru
+                                        </span>
                                     </div>
                                     <button
                                         type="button"
-                                        class="text-[11px] text-[#005BAC] hover:text-[#004b8e] hover:underline font-medium cursor-pointer"
+                                        class="text-[11px] text-slate-400 hover:text-slate-600 font-medium cursor-pointer"
                                         @click="showNotifications = false"
                                     >
-                                        Tandai dibaca
+                                        Tutup
                                     </button>
                                 </div>
 
                                 <div class="divide-y divide-slate-100 max-h-[60vh] sm:max-h-80 overflow-y-auto custom-scrollbar my-1">
+                                    <div v-if="notifications.length === 0" class="py-8 text-center text-slate-400">
+                                        <i class="pi pi-bell-slash text-2xl text-slate-300 mb-2 block" />
+                                        <p class="text-xs font-medium text-slate-600">Tidak ada pemberitahuan baru</p>
+                                        <p class="text-[11px] text-slate-400 mt-0.5">Semua tugas persetujuan dan verifikasi telah selesai.</p>
+                                    </div>
+
                                     <div
                                         v-for="item in notifications"
                                         :key="item.id"
-                                        class="py-2.5 px-1 hover:bg-slate-50/80 rounded-lg flex items-start gap-3 transition-colors cursor-pointer"
+                                        class="py-2.5 px-1.5 hover:bg-slate-50/90 rounded-lg flex items-start gap-3 transition-colors cursor-pointer"
+                                        @click="handleNotificationClick(item)"
                                     >
-                                        <div :class="['p-2 rounded-xl shrink-0 mt-0.5', item.icon]">
-                                            <i class="pi text-xs" />
+                                        <div :class="['size-8 rounded-xl shrink-0 mt-0.5 flex items-center justify-center', item.icon]">
+                                            <i :class="item.icon.split(' ')[0] + ' ' + item.icon.split(' ')[1]" class="text-xs" />
                                         </div>
                                         <div class="min-w-0 flex-1">
                                             <div class="flex items-center justify-between gap-1 mb-0.5">
-                                                <p class="text-xs font-semibold text-slate-800 truncate">
+                                                <p class="text-xs font-bold text-slate-800 truncate">
                                                     {{ item.title }}
                                                 </p>
                                                 <span :class="['text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0', item.badgeClass]">
                                                     {{ item.badge }}
                                                 </span>
                                             </div>
-                                            <p class="text-[11px] text-slate-500 truncate">
-                                                {{ item.user }}
+                                            <p class="text-[11px] text-slate-600 line-clamp-2 leading-relaxed">
+                                                {{ item.message }}
                                             </p>
                                             <span class="text-[10px] text-slate-400 mt-1 block">
                                                 {{ item.time }}
                                             </span>
                                         </div>
                                     </div>
-                                </div>
-
-                                <div class="pt-2 border-t border-slate-100 text-center">
-                                    <Link
-                                        href="/forms"
-                                        class="text-xs font-semibold text-[#005BAC] hover:text-[#004b8e] inline-flex items-center gap-1"
-                                        @click="showNotifications = false"
-                                    >
-                                        <span>Buka Pusat Verifikasi</span>
-                                        <i class="pi pi-arrow-right text-[10px]" />
-                                    </Link>
                                 </div>
                             </div>
                         </div>

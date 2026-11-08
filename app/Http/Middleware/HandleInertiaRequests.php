@@ -60,6 +60,7 @@ class HandleInertiaRequests extends Middleware
                     ] : null,
                 ] : null,
             ],
+            'notifications' => fn () => $user ? app(\App\Services\NotificationService::class)->getForUser($user) : ['count' => 0, 'items' => []],
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),
