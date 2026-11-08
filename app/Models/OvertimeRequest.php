@@ -15,14 +15,33 @@ class OvertimeRequest extends Model
 
     protected $guarded = ['id'];
 
+    // Label 4 jenis lembur KFPB sesuai master tbl_lembur sistem lama
+    public const OVERTIME_TYPES = [
+        1 => 'Lembur Hari Kerja',
+        2 => 'Lembur Sabtu/Minggu',
+        3 => 'Lembur Hari Besar/Raya',
+        4 => 'Lembur Flextime',
+    ];
+
+    // Label status approval sesuai kd_approve sistem lama
+    public const APPROVAL_STATUS_LABELS = [
+        0 => 'Menunggu',
+        1 => 'Disetujui',
+        2 => 'Ditolak',
+        3 => 'Menunggu ACC 1',
+        4 => 'Menunggu ACC 2',
+        5 => 'Menunggu ACC 3',
+    ];
+
     protected $casts = [
-        'request_date' => 'date',
-        'start_date' => 'date',
-        'end_date' => 'date',
-        'approval_status' => 'integer',
-        'supervisor_status_1' => 'integer',
-        'supervisor_status_2' => 'integer',
-        'supervisor_status_3' => 'integer',
+        'request_date'            => 'date',
+        'start_date'              => 'date',
+        'end_date'                => 'date',
+        'approval_status'         => 'integer',
+        'overtime_type'           => 'integer',
+        'supervisor_status_1'     => 'integer',
+        'supervisor_status_2'     => 'integer',
+        'supervisor_status_3'     => 'integer',
         'supervisor_approved_at_1' => 'datetime',
         'supervisor_approved_at_2' => 'datetime',
         'supervisor_approved_at_3' => 'datetime',

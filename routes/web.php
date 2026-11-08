@@ -3,6 +3,7 @@
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\ExitPermitController;
+use App\Http\Controllers\OvertimeController;
 use App\Http\Controllers\PermissionRequestController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -78,5 +79,14 @@ Route::middleware('auth')->group(function () {
     Route::prefix('admin/izin-keluar')->name('admin.izin-keluar.')->group(function () {
         Route::get('/', [ExitPermitController::class, 'adminIndex'])->name('index');
         Route::post('/{exitPermit}/status', [ExitPermitController::class, 'updateStatus'])->name('status');
+    });
+
+    // ===== Pengajuan Lembur (SPL – Surat Perintah Lembur) & Form Verifikasi Lembur =====
+    Route::prefix('lembur')->name('lembur.')->group(function () {
+        Route::get('/ajukan', [OvertimeController::class, 'create'])->name('create');
+        Route::post('/simpan', [OvertimeController::class, 'store'])->name('store');
+        Route::get('/verifikasi/{id}', [OvertimeController::class, 'verify'])->name('verify')->where('id', '[0-9]+');
+        Route::post('/verifikasi/{id}', [OvertimeController::class, 'saveVerification'])->name('verify.store')->where('id', '[0-9]+');
+        Route::get('/{id}', [OvertimeController::class, 'show'])->name('show')->where('id', '[0-9]+');
     });
 });
