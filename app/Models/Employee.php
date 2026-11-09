@@ -51,6 +51,11 @@ class Employee extends Model
         return $this->belongsTo(Religion::class, 'religion_id');
     }
 
+    public function employeeStatus(): BelongsTo
+    {
+        return $this->belongsTo(EmployeeStatus::class, 'employee_status_id');
+    }
+
     public function user(): HasOne
     {
         return $this->hasOne(User::class, 'employee_nip', 'nip');
