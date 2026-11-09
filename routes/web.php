@@ -5,6 +5,9 @@ use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\ExitPermitController;
 use App\Http\Controllers\OvertimeController;
 use App\Http\Controllers\PermissionRequestController;
+use App\Http\Controllers\MasterData\DivisionController;
+use App\Http\Controllers\MasterData\SubDivisionController;
+use App\Http\Controllers\MasterData\ReligionController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -91,5 +94,14 @@ Route::middleware('auth')->group(function () {
         Route::get('/verifikasi/{id}', [OvertimeController::class, 'verify'])->name('verify')->where('id', '[0-9]+');
         Route::post('/verifikasi/{id}', [OvertimeController::class, 'saveVerification'])->name('verify.store')->where('id', '[0-9]+');
         Route::get('/{id}', [OvertimeController::class, 'show'])->name('show')->where('id', '[0-9]+');
+    });
+
+    // ===== Master Data (Admin / HRD) =====
+    Route::prefix('admin')->name('admin.')->group(function () {
+        Route::prefix('master_data')->name('master_data.')->group(function () {
+            Route::resource('division', DivisionController::class)->except(['create', 'edit', 'show']);
+            Route::resource('sub_division', SubDivisionController::class)->except(['create', 'edit', 'show']);
+            Route::resource('religion', ReligionController::class)->except(['create', 'edit', 'show']);
+        });
     });
 });

@@ -96,6 +96,7 @@ const toggleMobileSidebar = () => {
 // Submenu Accordion state
 const openGroups = ref({
     // Admin Groups
+    masterData: false,
     kepegawaian: true,
     operasional: true,
     absensi: true,
@@ -354,7 +355,7 @@ const isCurrentUrl = (path) => {
                             <button
                                 type="button"
                                 class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors duration-150 font-medium cursor-pointer"
-                                @click="toggleGroup('master-data')"
+                                @click="toggleGroup('masterData')"
                             >
                                 <div class="flex items-center gap-3">
                                     <i class="pi pi-database text-base text-slate-400" />
@@ -363,12 +364,12 @@ const isCurrentUrl = (path) => {
                                 <i
                                     :class="[
                                         'pi pi-chevron-right text-xs text-slate-400 transition-transform duration-200',
-                                        openGroups['master-data'] ? 'rotate-90' : '',
+                                        openGroups['masterData'] ? 'rotate-90' : '',
                                     ]"
                                 />
                             </button>
 
-                            <ul v-show="openGroups['master-data']" class="pl-8 pr-1 space-y-1 pt-0.5">
+                            <ul v-show="openGroups['masterData']" class="pl-8 pr-1 space-y-1 pt-0.5">
                                 <li>
                                     <Link
                                         href="/components"
@@ -380,20 +381,50 @@ const isCurrentUrl = (path) => {
                                 </li>
                                 <li>
                                     <Link
-                                        href="/components"
-                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                        href="/admin/master_data/division"
+                                        :class="[
+                                            'flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/admin/master_data/division')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
                                     >
-                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Data Bagian</span>
+                                        <div class="flex items-center gap-2.5">
+                                            <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                            <span>Data Bagian</span>
+                                        </div>
                                     </Link>
                                 </li>
                                 <li>
                                     <Link
-                                        href="/components"
-                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                        href="/admin/master_data/sub_division"
+                                        :class="[
+                                            'flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/admin/master_data/sub_division')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
                                     >
-                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Data Agama</span>
+                                        <div class="flex items-center gap-2.5">
+                                            <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                            <span>Data Sub Bagian</span>
+                                        </div>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/admin/master_data/religion"
+                                        :class="[
+                                            'flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/admin/master_data/religion')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
+                                    >
+                                        <div class="flex items-center gap-2.5">
+                                            <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                            <span>Data Agama</span>
+                                        </div>
                                     </Link>
                                 </li>
                                 <li>
