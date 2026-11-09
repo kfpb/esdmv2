@@ -211,7 +211,7 @@ function destroyEmployeeStatus(event, item) {
                         <input
                             v-model="filterForm.search"
                             type="text"
-                            placeholder="Cari Agama..."
+                            placeholder="Cari Status..."
                             class="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-300 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#005BAC]/30 focus:border-[#005BAC]"
                         />
                         <i class="pi pi-search absolute left-2.5 top-2.5 text-slate-400 text-xs" />
