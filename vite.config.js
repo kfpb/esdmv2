@@ -11,6 +11,9 @@ export default defineConfig({
         }),
         vue({
             template: {
+                compilerOptions: {
+                    comments: false,
+                },
                 transformAssetUrls: {
                     base: null,
                     includeAbsolute: false,

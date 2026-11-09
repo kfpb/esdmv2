@@ -8,7 +8,7 @@ return new class extends Migration
 {
     /**
      * Run the migrations.
-     * Mapping 1:1 dari tabel legacy pegawai.tgl_kontrak -> employees.contract_end_date.
+     * pegawai.tgl_kontrak -> employees.contract_end_date.
      */
     public function up(): void
     {

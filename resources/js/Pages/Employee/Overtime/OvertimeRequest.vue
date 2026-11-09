@@ -26,17 +26,16 @@ const props = defineProps({
 
 const toast = useToast();
 
-// --- STATE FORMULIR ---
+const activeTab = ref(props.pendingVerificationCount > 0 ? 'history' : 'form');
 const selectedDate = ref(null);
 
-// Form data menggunakan Inertia useForm
 const form = useForm({
     applicant_nip: props.authEmployee?.nip || '',
     overtime_type: 1,
     start_date: '',
     start_time: '',
     end_time: '',
-    supervisors: ['', '', ''],     // Tiga slot ACC (ACC 1 wajib, ACC 2 & 3 opsional)
+    supervisors: ['', '', ''],
     participants: [{ nip: '', task: '' }],
 });
 
@@ -125,6 +124,7 @@ function submitForm() {
             form.supervisors = ['', '', ''];
             selectedDate.value = null;
             form.participants = [{ nip: '', task: '' }];
+            activeTab.value = 'history';
         },
         onError: (errors) => {
             const firstError = Object.values(errors)[0];
@@ -138,7 +138,6 @@ function submitForm() {
     });
 }
 
-// --- DETAIL RIWAYAT (DIALOG) ---
 const detailDialogVisible = ref(false);
 const detailData = ref(null);
 const loadingDetail = ref(false);
@@ -188,8 +187,6 @@ function getTypeLabel(type) {
 
     <div class="space-y-6 max-w-5xl mx-auto px-3 sm:px-6 py-2">
         <Toast position="top-right" />
-
-        <!-- ============== HEADER BREADCRUMB ============== -->
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
             <div class="space-y-1">
                 <div class="flex items-center gap-2 text-xs font-medium text-slate-500">
@@ -204,11 +201,10 @@ function getTypeLabel(type) {
                     Surat Perintah Lembur (SPL)
                 </h1>
                 <p class="text-xs sm:text-sm text-slate-500">
-                    Formulir pengajuan lembur resmi KFPB — rencana lembur beserta daftar peserta dan persetujuan atasan.
+                    Formulir pengajuan lembur resmi KFPB - rencana lembur beserta daftar peserta dan persetujuan atasan.
                 </p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
-                <!-- Badge SPL menunggu verifikasi -->
                 <span
                     v-if="pendingVerificationCount > 0"
                     class="inline-flex items-center gap-1 bg-amber-100 text-amber-700 text-[11px] font-semibold px-2.5 py-1 rounded-full border border-amber-200"
@@ -221,8 +217,6 @@ function getTypeLabel(type) {
                 </Link>
             </div>
         </div>
-
-        <!-- ============== ALERT PERINGATAN PENDING VERIFIKASI ============== -->
         <div
             v-if="pendingVerificationCount > 0"
             class="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3"
@@ -231,32 +225,93 @@ function getTypeLabel(type) {
             <div class="text-sm text-amber-800">
                 <p class="font-semibold">Anda memiliki {{ pendingVerificationCount }} SPL yang sudah disetujui dan menunggu verifikasi pelaksanaan.</p>
                 <p class="text-xs mt-1 text-amber-700">
-                    Verifikasi SPL lama terlebih dahulu sebelum membuat pengajuan baru. Lihat di tab Riwayat di bawah.
+                    Verifikasi SPL lama terlebih dahulu sebelum membuat pengajuan baru.
+                    <button
+                        type="button"
+                        class="underline font-bold text-amber-900 hover:text-amber-950 ml-1 cursor-pointer"
+                        @click="activeTab = 'history'"
+                    >
+                        Buka Tab Riwayat untuk verifikasi &rarr;
+                    </button>
                 </p>
             </div>
         </div>
-
-        <!-- ============== ALERT FLASH SUCCESS ============== -->
         <div v-if="$page.props.flash?.success" class="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-start gap-3">
             <i class="pi pi-check-circle text-emerald-500 text-lg mt-0.5 shrink-0" />
             <p class="text-sm text-emerald-800 font-medium">{{ $page.props.flash.success }}</p>
         </div>
-
-        <!-- ============== FORMULIR PENGAJUAN SPL ============== -->
-        <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
-            <!-- Header Card -->
-            <div class="px-5 sm:px-6 py-4 bg-gradient-to-r from-[#005BAC] to-[#004280] text-white flex items-center gap-3">
-                <div class="size-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center shrink-0">
-                    <i class="pi pi-clock text-white text-lg" />
-                </div>
-                <div>
-                    <h2 class="font-bold text-sm sm:text-base tracking-tight text-white">Form Pengajuan Lembur Baru</h2>
-                    <p class="text-[11px] text-blue-100">PT Kimia Farma Plant Banjaran &bull; Rencana lembur harus diajukan sebelum pelaksanaan</p>
-                </div>
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="grid grid-cols-2 p-1.5 bg-slate-200/70 rounded-2xl max-w-md w-full select-none">
+                <button
+                    type="button"
+                    class="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer"
+                    :class="activeTab === 'form'
+                        ? 'bg-white text-slate-900 shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'"
+                    @click="activeTab = 'form'"
+                >
+                    <i class="pi pi-pencil text-xs" />
+                    <span>Form Pengajuan</span>
+                </button>
+                <button
+                    type="button"
+                    class="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer"
+                    :class="activeTab === 'history'
+                        ? 'bg-white text-slate-900 shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'"
+                    @click="activeTab = 'history'"
+                >
+                    <i class="pi pi-history text-xs" />
+                    <span>Riwayat SPL</span>
+                    <span
+                        v-if="recentOvertime.length > 0"
+                        class="px-1.5 py-0.5 rounded-full text-[10px]"
+                        :class="activeTab === 'history' ? 'bg-slate-100 text-slate-700 font-mono' : 'bg-slate-300 text-slate-800 font-mono'"
+                    >
+                        {{ recentOvertime.length }}
+                    </span>
+                    <span
+                        v-if="pendingVerificationCount > 0"
+                        class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white animate-pulse"
+                    >
+                        {{ pendingVerificationCount }} Perlu Verifikasi
+                    </span>
+                </button>
             </div>
+            <div class="flex items-center gap-2">
+                <Button
+                    v-if="activeTab === 'history'"
+                    label="Buat Pengajuan Lembur Baru"
+                    icon="pi pi-plus"
+                    size="small"
+                    class="bg-[#005BAC] hover:bg-[#004280] text-white text-xs"
+                    @click="activeTab = 'form'"
+                />
+                <Button
+                    v-else
+                    label="Lihat Riwayat SPL"
+                    icon="pi pi-history"
+                    size="small"
+                    severity="secondary"
+                    outlined
+                    class="text-xs"
+                    @click="activeTab = 'history'"
+                />
+            </div>
+        </div>
+        <div v-show="activeTab === 'form'" class="space-y-6">
+            <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+                <div class="px-5 sm:px-6 py-4 bg-gradient-to-r from-[#005BAC] to-[#004280] text-white flex items-center gap-3">
+                    <div class="size-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center shrink-0">
+                        <i class="pi pi-clock text-white text-lg" />
+                    </div>
+                    <div>
+                        <h2 class="font-bold text-sm sm:text-base tracking-tight text-white">Form Pengajuan Lembur Baru</h2>
+                        <p class="text-[11px] text-blue-100">PT Kimia Farma Plant Banjaran &bull; Rencana lembur harus diajukan sebelum pelaksanaan</p>
+                    </div>
+                </div>
 
-            <form @submit.prevent="submitForm" class="p-5 sm:p-7 space-y-7">
-                <!-- Alert Validasi Global -->
+                <form @submit.prevent="submitForm" class="p-5 sm:p-7 space-y-7">
                 <div
                     v-if="Object.keys(form.errors).length > 0"
                     class="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs sm:text-sm space-y-1"
@@ -269,8 +324,6 @@ function getTypeLabel(type) {
                         <li v-for="(errMsg, errField) in form.errors" :key="errField">{{ errMsg }}</li>
                     </ul>
                 </div>
-
-                <!-- BAGIAN 1: Data Pengaju -->
                 <section class="space-y-3">
                     <h3 class="text-sm font-bold uppercase tracking-wider text-slate-700 border-b border-slate-100 pb-2">
                         Data Pengaju Lembur
@@ -296,14 +349,10 @@ function getTypeLabel(type) {
                         </div>
                     </div>
                 </section>
-
-                <!-- BAGIAN 2: Rencana Lembur -->
                 <section class="space-y-4">
                     <h3 class="text-sm font-bold uppercase tracking-wider text-slate-700 border-b border-slate-100 pb-2">
                         Rencana Lembur
                     </h3>
-
-                    <!-- Peringatan Bisnis Kunci -->
                     <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 text-xs text-blue-800 space-y-1.5">
                         <p class="font-semibold text-blue-900 flex items-center gap-1.5"><i class="pi pi-info-circle" /> Ketentuan Pengajuan Lembur KFPB:</p>
                         <ul class="list-disc list-inside space-y-1 pl-2 text-blue-700">
@@ -316,7 +365,6 @@ function getTypeLabel(type) {
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <!-- Jenis Lembur -->
                         <div class="space-y-1.5 sm:col-span-2">
                             <label class="text-xs font-semibold text-slate-700">Jenis Lembur <span class="text-rose-500">*</span></label>
                             <IftaLabel class="w-full">
@@ -332,8 +380,6 @@ function getTypeLabel(type) {
                             </IftaLabel>
                             <p v-if="form.errors.overtime_type" class="text-xs text-rose-600">{{ form.errors.overtime_type }}</p>
                         </div>
-
-                        <!-- Tanggal Rencana Lembur -->
                         <div class="space-y-1.5">
                             <label class="text-xs font-semibold text-slate-700">Tanggal Rencana Lembur <span class="text-rose-500">*</span></label>
                             <DatePicker
@@ -349,8 +395,6 @@ function getTypeLabel(type) {
                             />
                             <p v-if="form.errors.start_date" class="text-xs text-rose-600">{{ form.errors.start_date }}</p>
                         </div>
-
-                        <!-- Jam Mulai -->
                         <div class="space-y-1.5">
                             <label class="text-xs font-semibold text-slate-700">Jam Mulai Rencana <span class="text-rose-500">*</span></label>
                             <input
@@ -361,8 +405,6 @@ function getTypeLabel(type) {
                             <p class="text-[11px] text-slate-400">Format 24 jam, contoh: 16:00</p>
                             <p v-if="form.errors.start_time" class="text-xs text-rose-600">{{ form.errors.start_time }}</p>
                         </div>
-
-                        <!-- Jam Selesai -->
                         <div class="space-y-1.5">
                             <label class="text-xs font-semibold text-slate-700">Jam Selesai Rencana <span class="text-rose-500">*</span></label>
                             <input
@@ -375,8 +417,6 @@ function getTypeLabel(type) {
                         </div>
                     </div>
                 </section>
-
-                <!-- BAGIAN 3: Pejabat Penyetuju (ACC) -->
                 <section class="space-y-4">
                     <h3 class="text-sm font-bold uppercase tracking-wider text-slate-700 border-b border-slate-100 pb-2">
                         Pejabat Penyetuju (ACC Lembur)
@@ -398,7 +438,7 @@ function getTypeLabel(type) {
                                     option-label="label"
                                     option-value="nip"
                                     class="w-full"
-                                    :placeholder="`-- Pilih Pejabat ACC ${idx + 1} --`"
+                                    :placeholder="`-- Pilih ACC ${idx + 1} --`"
                                     filter
                                     show-clear
                                     :disabled="idx > 0 && !form.supervisors[idx - 1]"
@@ -407,8 +447,6 @@ function getTypeLabel(type) {
                         </div>
                     </div>
                 </section>
-
-                <!-- BAGIAN 4: Daftar Peserta Lembur -->
                 <section class="space-y-4">
                     <div class="flex items-center justify-between">
                         <h3 class="text-sm font-bold uppercase tracking-wider text-slate-700 border-b border-slate-100 pb-2 grow">
@@ -438,7 +476,6 @@ function getTypeLabel(type) {
                             </div>
 
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <!-- Pilih Pegawai -->
                                 <div class="space-y-1">
                                     <label class="text-xs font-semibold text-slate-600">Pilih Pegawai <span class="text-rose-500">*</span></label>
                                     <Select
@@ -454,8 +491,6 @@ function getTypeLabel(type) {
                                         {{ form.errors[`participants.${idx}.nip`] }}
                                     </p>
                                 </div>
-
-                                <!-- Uraian Tugas -->
                                 <div class="space-y-1">
                                     <label class="text-xs font-semibold text-slate-600">Uraian Tugas Lembur <span class="text-rose-500">*</span></label>
                                     <input
@@ -484,8 +519,6 @@ function getTypeLabel(type) {
                         @click="addParticipant"
                     />
                 </section>
-
-                <!-- TOMBOL SUBMIT -->
                 <div class="pt-2 border-t border-slate-100 flex flex-col sm:flex-row justify-end gap-3">
                     <Button
                         type="button"
@@ -504,18 +537,22 @@ function getTypeLabel(type) {
                 </div>
             </form>
         </div>
-
-        <!-- ============== RIWAYAT PENGAJUAN LEMBUR ============== -->
-        <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
-            <div class="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center gap-3">
-                <i class="pi pi-history text-[#005BAC] text-lg" />
-                <div>
-                    <h2 class="font-bold text-sm text-slate-900">Riwayat Pengajuan Lembur Saya</h2>
-                    <p class="text-[11px] text-slate-500">15 pengajuan terbaru — tanggal terbaru paling atas</p>
+        </div>
+        <div v-show="activeTab === 'history'" class="space-y-6">
+            <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+                <div class="px-5 sm:px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                        <div class="size-9 rounded-xl bg-blue-50 text-[#005BAC] flex items-center justify-center shrink-0">
+                            <i class="pi pi-history text-base" />
+                        </div>
+                        <div>
+                            <h2 class="font-bold text-sm text-slate-900">Riwayat Pengajuan Lembur Saya</h2>
+                            <p class="text-[11px] text-slate-500">15 pengajuan terbaru - tanggal terbaru paling atas</p>
+                        </div>
+                    </div>
                 </div>
-            </div>
 
-            <div class="p-5 sm:p-6">
+                <div class="p-5 sm:p-6">
                 <DataTable
                     :value="recentOvertime"
                     :rows="10"
@@ -527,19 +564,22 @@ function getTypeLabel(type) {
                     empty-message="Belum ada riwayat pengajuan lembur."
                     striped-rows
                 >
+                    <Column field="code" header="Kode SPL" sortable style="min-width: 125px">
+                        <template #body="{ data }">
+                            <span class="font-mono font-bold text-xs text-[#005BAC]">
+                                {{ data.code }}
+                            </span>
+                            <span v-if="data.legacy_id" class="block font-mono text-[10px] text-slate-400">
+                                #{{ data.legacy_id }}
+                            </span>
+                        </template>
+                    </Column>
                     <Column field="request_date" header="Tgl Pengajuan" sortable style="min-width: 110px" />
                     <Column field="type_label" header="Jenis Lembur" sortable style="min-width: 150px" />
                     <Column field="start_date" header="Tgl Lembur" sortable style="min-width: 100px" />
                     <Column header="Jam" style="min-width: 110px">
                         <template #body="{ data }">
                             <span class="font-mono text-xs">{{ data.start_time }} – {{ data.end_time }}</span>
-                        </template>
-                    </Column>
-                    <Column field="participant_count" header="Peserta" sortable style="min-width: 80px; text-align: center">
-                        <template #body="{ data }">
-                            <span class="inline-flex items-center justify-center min-w-6 h-5 bg-slate-100 rounded-full text-[11px] font-bold text-slate-600 px-1.5">
-                                {{ data.participant_count }}
-                            </span>
                         </template>
                     </Column>
                     <Column field="approval_status" header="Status" sortable style="min-width: 170px">
@@ -554,7 +594,6 @@ function getTypeLabel(type) {
                     <Column header="Aksi" style="min-width: 130px; text-align: center">
                         <template #body="{ data }">
                             <div class="flex items-center justify-center gap-1.5">
-                                <!-- Tombol Verifikasi Resmi KFPB -->
                                 <Link
                                     v-if="data.can_verify"
                                     :href="`/lembur/verifikasi/${data.id}`"
@@ -567,8 +606,6 @@ function getTypeLabel(type) {
                                         v-tooltip="'Isi Form Verifikasi Lembur'"
                                     />
                                 </Link>
-
-                                <!-- Tombol Lihat Detail -->
                                 <Button
                                     icon="pi pi-eye"
                                     size="small"
@@ -585,13 +622,12 @@ function getTypeLabel(type) {
             </div>
         </div>
     </div>
-
-    <!-- ============== DIALOG DETAIL SPL ============== -->
+    </div>
     <Dialog
         v-model:visible="detailDialogVisible"
         modal
         header="Detail Surat Perintah Lembur (SPL)"
-        :style="{ width: '640px', maxWidth: '95vw' }"
+        :style="{ width: '680px', maxWidth: '95vw' }"
         :closable="true"
     >
         <div v-if="loadingDetail" class="py-10 text-center text-slate-400">
@@ -600,31 +636,91 @@ function getTypeLabel(type) {
         </div>
 
         <div v-else-if="detailData" class="space-y-5 text-sm">
-            <!-- Info Utama -->
-            <div class="grid grid-cols-2 gap-x-6 gap-y-3">
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3 bg-slate-50/70 p-4 rounded-xl border border-slate-200/80">
                 <div>
-                    <p class="text-xs text-slate-500 font-semibold uppercase">Jenis Lembur</p>
-                    <p class="font-medium text-slate-800">{{ detailData.type_label }}</p>
+                    <p class="text-[11px] text-slate-500 font-semibold uppercase">Kode SPL</p>
+                    <p class="font-mono font-bold text-[#005BAC] text-xs sm:text-sm mt-0.5">
+                        {{ detailData.code }}
+                        <span v-if="detailData.legacy_id" class="text-[10px] text-slate-400 font-normal ml-1">
+                            (#{{ detailData.legacy_id }})
+                        </span>
+                    </p>
                 </div>
                 <div>
-                    <p class="text-xs text-slate-500 font-semibold uppercase">Tanggal Lembur</p>
-                    <p class="font-medium text-slate-800">{{ detailData.start_date }}</p>
+                    <p class="text-[11px] text-slate-500 font-semibold uppercase">Jenis Lembur</p>
+                    <p class="font-medium text-slate-800 mt-0.5">{{ detailData.type_label }}</p>
                 </div>
                 <div>
-                    <p class="text-xs text-slate-500 font-semibold uppercase">Jam Rencana</p>
-                    <p class="font-mono font-medium text-slate-800">{{ detailData.start_time }} – {{ detailData.end_time }}</p>
+                    <p class="text-[11px] text-slate-500 font-semibold uppercase">Tanggal Lembur</p>
+                    <p class="font-medium text-slate-800 mt-0.5">{{ detailData.start_date }}</p>
                 </div>
                 <div>
-                    <p class="text-xs text-slate-500 font-semibold uppercase">Status</p>
-                    <Tag :value="detailData.status_label" :severity="getStatusSeverity(detailData.approval_status)" class="text-[11px]" />
+                    <p class="text-[11px] text-slate-500 font-semibold uppercase">Tgl Pengajuan</p>
+                    <p class="font-medium text-slate-800 mt-0.5">{{ detailData.request_date }}</p>
                 </div>
                 <div>
-                    <p class="text-xs text-slate-500 font-semibold uppercase">ACC 1</p>
-                    <p class="font-medium text-slate-800">{{ detailData.supervisor_1 || '-' }}</p>
+                    <p class="text-[11px] text-slate-500 font-semibold uppercase">Jam Rencana</p>
+                    <p class="font-mono font-medium text-slate-800 mt-0.5">{{ detailData.start_time }} – {{ detailData.end_time }}</p>
                 </div>
                 <div>
-                    <p class="text-xs text-slate-500 font-semibold uppercase">Tgl Pengajuan</p>
-                    <p class="font-medium text-slate-800">{{ detailData.request_date }}</p>
+                    <p class="text-[11px] text-slate-500 font-semibold uppercase">Status Pengajuan</p>
+                    <div class="mt-1">
+                        <Tag :value="detailData.status_label" :severity="getStatusSeverity(detailData.approval_status)" class="text-[11px]" />
+                    </div>
+                </div>
+            </div>
+            <div>
+                <div class="flex items-center justify-between mb-2.5">
+                    <p class="text-xs font-bold uppercase tracking-wider text-slate-700">
+                        Alur Persetujuan Atasan (ACC 1 – 3)
+                    </p>
+                    <span class="text-[11px] text-slate-500">
+                        {{ detailData.supervisors?.length ?? 0 }} Tingkat Approval
+                    </span>
+                </div>
+
+                <div
+                    v-if="detailData.supervisors && detailData.supervisors.length > 0"
+                    class="grid gap-3"
+                    :class="detailData.supervisors.length === 1 ? 'grid-cols-1' : (detailData.supervisors.length === 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-3')"
+                >
+                    <div
+                        v-for="s in detailData.supervisors"
+                        :key="s.level"
+                        class="p-3.5 rounded-xl border bg-white shadow-xs flex flex-col justify-between gap-2.5 transition-all"
+                        :class="s.status_label === 'Menunggu'
+                            ? 'border-amber-300 ring-2 ring-amber-100/70 bg-amber-50/20'
+                            : 'border-slate-200/90'"
+                    >
+                        <div class="flex items-center justify-between gap-1.5 pb-2 border-b border-slate-100">
+                            <span class="text-[11px] font-bold uppercase tracking-wide flex items-center gap-1"
+                                :class="s.status === 1 ? 'text-emerald-700' : (s.status_label === 'Menunggu' ? 'text-amber-700' : 'text-slate-500')"
+                            >
+                                <i class="pi pi-user-check text-[10px]" />
+                                {{ s.level_label }}
+                            </span>
+                            <Tag
+                                :value="s.status_label"
+                                :severity="s.status === 1 ? 'success' : (s.status === 2 ? 'danger' : (s.status_label === 'Menunggu Antrean' ? 'secondary' : 'warn'))"
+                                class="text-[10px] px-1.5 py-0.5"
+                            />
+                        </div>
+
+                        <div class="space-y-0.5">
+                            <p class="font-bold text-slate-900 text-xs leading-snug line-clamp-1" :title="s.name">{{ s.name }}</p>
+                            <p class="text-[11px] text-slate-500 font-mono">{{ s.nip }}</p>
+                            <p class="text-[11px] text-slate-600 truncate text-[11px]" :title="s.position">{{ s.position }}</p>
+                        </div>
+
+                        <div v-if="s.approved_at" class="text-[10px] text-slate-400 pt-1.5 border-t border-slate-100 flex items-center gap-1">
+                            <i class="pi pi-clock text-[9px]" />
+                            <span>{{ s.approved_at }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-else class="text-xs text-slate-400 italic p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    Tidak ada data atasan penyetuju yang tercatat.
                 </div>
             </div>
 
@@ -632,8 +728,6 @@ function getTypeLabel(type) {
                 <p class="text-xs font-semibold text-amber-700 uppercase">Catatan Atasan</p>
                 <p class="text-sm text-amber-900 mt-1">{{ detailData.approval_notes }}</p>
             </div>
-
-            <!-- Daftar Peserta -->
             <div>
                 <p class="text-xs font-bold uppercase tracking-wider text-slate-700 mb-3">
                     Daftar Peserta Lembur ({{ detailData.participants?.length ?? 0 }} orang)

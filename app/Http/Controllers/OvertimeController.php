@@ -64,7 +64,7 @@ class OvertimeController extends Controller
             ->whereNull('end_date')
             ->count();
 
-        return Inertia::render('Employee/OvertimeRequest', [
+        return Inertia::render('Employee/Overtime/OvertimeRequest', [
             'authEmployee' => [
                 'nip'          => $authNip,
                 'name'         => $employee?->full_name ?? $user->name,
@@ -150,10 +150,31 @@ class OvertimeController extends Controller
     {
         $user    = Auth::user();
         $authNip = $user->employee_nip;
+        $isAdmin = $user->hasAdminAccess();
 
-        $overtime = OvertimeRequest::with(['participants.employee'])
-            ->where('applicant_nip', $authNip) // Hanya boleh lihat miliknya sendiri
-            ->findOrFail($id);
+        $query = OvertimeRequest::with([
+            'applicant.division',
+            'applicant.position',
+            'participants.employee',
+            'supervisor1.position',
+            'supervisor2.position',
+            'supervisor3.position',
+        ]);
+
+        // Proteksi Otorisasi: Pemohon, Pejabat Penyetuju (ACC 1-3), Peserta, atau Admin
+        if (! $isAdmin) {
+            $query->where(function ($q) use ($authNip) {
+                $q->where('applicant_nip', $authNip)
+                    ->orWhere('supervisor_title_1', $authNip)
+                    ->orWhere('supervisor_title_2', $authNip)
+                    ->orWhere('supervisor_title_3', $authNip)
+                    ->orWhereHas('participants', function ($sub) use ($authNip) {
+                        $sub->where('employee_nip', $authNip);
+                    });
+            });
+        }
+
+        $overtime = $query->findOrFail($id);
 
         $participants = $overtime->participants->map(fn ($p) => [
             'nip'       => $p->employee_nip,
@@ -162,22 +183,106 @@ class OvertimeController extends Controller
             'duration'  => $p->duration,
         ]);
 
+        $supervisors = [];
+        $appStatus   = (int) $overtime->approval_status;
+
+        foreach ([1, 2, 3] as $level) {
+            $nip = $overtime->{"supervisor_title_{$level}"};
+            if (! $nip) {
+                continue;
+            }
+
+            $emp        = $overtime->{"supervisor{$level}"};
+            $approvedAt = $overtime->{"supervisor_approved_at_{$level}"};
+
+            // Tentukan status approval per level sesuai alur berjenjang hierarki KFPB:
+            // 1: Disetujui (semua tingkat ACC telah selesai)
+            // 2: Ditolak
+            // 3: Sedang menunggu ACC 1
+            // 4: ACC 1 selesai, sedang menunggu ACC 2
+            // 5: ACC 1 & 2 selesai, sedang menunggu ACC 3
+            if ($appStatus === 1) {
+                $status      = 1;
+                $statusLabel = 'Disetujui';
+            } elseif ($appStatus === 2) {
+                $rawStatus = (int) $overtime->{"supervisor_status_{$level}"};
+                if ($rawStatus === 2) {
+                    $status      = 2;
+                    $statusLabel = 'Ditolak';
+                } elseif (! empty($approvedAt)) {
+                    $status      = 1;
+                    $statusLabel = 'Disetujui';
+                } else {
+                    $status      = 0;
+                    $statusLabel = 'Dibatalkan';
+                }
+            } elseif ($appStatus === 3) {
+                $status      = 0;
+                $statusLabel = ($level === 1) ? 'Menunggu' : 'Menunggu Antrean';
+            } elseif ($appStatus === 4) {
+                if ($level === 1) {
+                    $status      = 1;
+                    $statusLabel = 'Disetujui';
+                } elseif ($level === 2) {
+                    $status      = 0;
+                    $statusLabel = 'Menunggu';
+                } else {
+                    $status      = 0;
+                    $statusLabel = 'Menunggu Antrean';
+                }
+            } elseif ($appStatus === 5) {
+                if ($level < 3) {
+                    $status      = 1;
+                    $statusLabel = 'Disetujui';
+                } else {
+                    $status      = 0;
+                    $statusLabel = 'Menunggu';
+                }
+            } else {
+                if (! empty($approvedAt)) {
+                    $status      = 1;
+                    $statusLabel = 'Disetujui';
+                } else {
+                    $status      = 0;
+                    $statusLabel = 'Menunggu';
+                }
+            }
+
+            $supervisors[] = [
+                'level'        => $level,
+                'level_label'  => "ACC {$level}",
+                'nip'          => $nip,
+                'name'         => $emp?->full_name ?? "Pegawai ({$nip})",
+                'position'     => $emp?->position?->name ?? 'Pejabat Penyetuju',
+                'status'       => $status,
+                'status_label' => $statusLabel,
+                'approved_at'  => $approvedAt?->format('d/m/Y H:i'),
+            ];
+        }
+
         return response()->json([
-            'id'              => $overtime->id,
-            'overtime_type'   => $overtime->overtime_type,
-            'type_label'      => OvertimeRequest::OVERTIME_TYPES[$overtime->overtime_type] ?? 'Lembur',
-            'start_date'      => $overtime->start_date?->format('d/m/Y'),
-            'raw_start_date'  => $overtime->start_date?->format('Y-m-d'),
-            'start_time'      => $overtime->duration ? substr($overtime->duration, 0, 5) : '-',
-            'end_time'        => $overtime->reason && strlen($overtime->reason) >= 5 ? substr($overtime->reason, 0, 5) : '-',
-            'approval_status' => $overtime->approval_status,
-            'status_label'    => OvertimeRequest::APPROVAL_STATUS_LABELS[$overtime->approval_status] ?? 'Menunggu',
-            'supervisor_1'    => $overtime->supervisor_title_1,
-            'supervisor_2'    => $overtime->supervisor_title_2,
-            'supervisor_3'    => $overtime->supervisor_title_3,
-            'approval_notes'  => $overtime->approval_notes,
-            'request_date'    => $overtime->request_date?->format('d/m/Y'),
-            'participants'    => $participants,
+            'id'                 => $overtime->id,
+            'code'               => sprintf('SPL-%05d', $overtime->id),
+            'legacy_id'          => $overtime->legacy_id,
+            'applicant_nip'      => $overtime->applicant_nip,
+            'applicant_name'     => $overtime->applicant?->full_name ?? $overtime->applicant_nip,
+            'applicant_division' => $overtime->applicant?->division?->name ?? 'Plant Banjaran',
+            'applicant_position' => $overtime->applicant?->position?->name ?? '-',
+            'overtime_type'      => $overtime->overtime_type,
+            'type_label'         => OvertimeRequest::OVERTIME_TYPES[$overtime->overtime_type] ?? 'Lembur',
+            'start_date'         => $overtime->start_date?->format('d/m/Y'),
+            'raw_start_date'     => $overtime->start_date?->format('Y-m-d'),
+            'start_time'         => $overtime->duration ? substr($overtime->duration, 0, 5) : '-',
+            'end_time'           => $overtime->reason && strlen($overtime->reason) >= 5 ? substr($overtime->reason, 0, 5) : '-',
+            'approval_status'    => $overtime->approval_status,
+            'status_label'       => OvertimeRequest::APPROVAL_STATUS_LABELS[$overtime->approval_status] ?? 'Menunggu',
+            'supervisor_1'       => $overtime->supervisor_title_1,
+            'supervisor_2'       => $overtime->supervisor_title_2,
+            'supervisor_3'       => $overtime->supervisor_title_3,
+            'supervisors'        => $supervisors,
+            'approval_notes'     => $overtime->approval_notes,
+            'request_date'       => $overtime->request_date?->format('d/m/Y'),
+            'participants'       => $participants,
         ]);
     }
 
@@ -211,6 +316,8 @@ class OvertimeController extends Controller
 
         return [
             'id'               => $ot->id,
+            'code'             => sprintf('SPL-%05d', $ot->id),
+            'legacy_id'        => $ot->legacy_id,
             'overtime_type'    => $ot->overtime_type,
             'type_label'       => OvertimeRequest::OVERTIME_TYPES[$ot->overtime_type] ?? 'Lembur',
             'request_date'     => $ot->request_date?->format('d/m/Y'),
@@ -289,9 +396,11 @@ class OvertimeController extends Controller
             ];
         });
 
-        return Inertia::render('Employee/OvertimeVerification', [
+        return Inertia::render('Employee/Overtime/OvertimeVerification', [
             'overtime' => [
                 'id'                   => $overtime->id,
+                'code'                 => sprintf('SPL-%05d', $overtime->id),
+                'legacy_id'            => $overtime->legacy_id,
                 'applicant_nip'        => $overtime->applicant_nip,
                 'type_label'           => OvertimeRequest::OVERTIME_TYPES[$overtime->overtime_type] ?? 'Lembur',
                 'start_date'           => $overtime->start_date?->format('d/m/Y'),
@@ -404,5 +513,336 @@ class OvertimeController extends Controller
         return redirect()
             ->route('lembur.create')
             ->with('success', 'Form Verifikasi Lembur berhasil disimpan. Realisasi lembur telah dicatat ke sistem presensi.');
+    }
+
+    /**
+     * Halaman Pusat Persetujuan Lembur Atasan (replikasi resmi modul native: absen/app_lembur.php).
+     * Menampilkan daftar SPL bawahan yang menunggu giliran persetujuan ACC 1, 2, atau 3.
+     */
+    public function approvalIndex(Request $request): Response
+    {
+        $user    = Auth::user();
+        $authNip = $user->employee_nip;
+        $isAdmin = $user->hasAdminAccess();
+
+        // 1. Ambil SPL yang sedang MENUNGGU persetujuan user yang login
+        $pendingQuery = OvertimeRequest::with([
+            'applicant.division',
+            'applicant.position',
+            'participants.employee',
+            'supervisor1.position',
+            'supervisor2.position',
+            'supervisor3.position',
+        ]);
+
+        if ($isAdmin) {
+            $pendingQuery->whereIn('approval_status', [3, 4, 5]);
+        } else {
+            $pendingQuery->where(function ($q) use ($authNip) {
+                $q->where(function ($sub) use ($authNip) {
+                    $sub->where('supervisor_title_1', $authNip)->where('approval_status', 3);
+                })->orWhere(function ($sub) use ($authNip) {
+                    $sub->where('supervisor_title_2', $authNip)->where('approval_status', 4);
+                })->orWhere(function ($sub) use ($authNip) {
+                    $sub->where('supervisor_title_3', $authNip)->where('approval_status', 5);
+                });
+            });
+        }
+
+        $pendingApprovals = $pendingQuery
+            ->orderByDesc('request_date')
+            ->orderByDesc('id')
+            ->get()
+            ->map(fn ($ot) => $this->formatApprovalRow($ot, $authNip, $isAdmin));
+
+        // 2. Ambil Riwayat SPL yang pernah diproses oleh atasan ini (atau riwayat global untuk admin)
+        $historyQuery = OvertimeRequest::with([
+            'applicant.division',
+            'applicant.position',
+            'participants.employee',
+            'supervisor1.position',
+            'supervisor2.position',
+            'supervisor3.position',
+        ]);
+
+        if ($isAdmin) {
+            $historyQuery->whereIn('approval_status', [1, 2]);
+        } else {
+            $historyQuery->where(function ($q) use ($authNip) {
+                $q->where('supervisor_title_1', $authNip)
+                    ->orWhere('supervisor_title_2', $authNip)
+                    ->orWhere('supervisor_title_3', $authNip);
+            })->whereIn('approval_status', [1, 2]);
+        }
+
+        $historyApprovals = $historyQuery
+            ->orderByDesc('updated_at')
+            ->take(30)
+            ->get()
+            ->map(fn ($ot) => $this->formatApprovalRow($ot, $authNip, $isAdmin));
+
+        return Inertia::render('Employee/Overtime/OvertimeApproval', [
+            'pendingApprovals' => $pendingApprovals,
+            'historyApprovals' => $historyApprovals,
+            'isAdmin'          => $isAdmin,
+        ]);
+    }
+
+    /**
+     * Proses keputusan persetujuan Atasan (Setuju / Tolak).
+     * Mengikuti 100% transisi status hierarki KFPB di absen/data_lembur.php.
+     */
+    public function processApproval(Request $request, int $id): RedirectResponse
+    {
+        $validated = $request->validate([
+            'decision' => ['required', 'in:approve,reject'],
+            'notes'    => ['nullable', 'string', 'max:255'],
+        ], [
+            'decision.required' => 'Pilihan persetujuan wajib ditentukan.',
+            'decision.in'       => 'Pilihan persetujuan tidak valid.',
+        ]);
+
+        $user    = Auth::user();
+        $authNip = $user->employee_nip;
+        $isAdmin = $user->hasAdminAccess();
+
+        $overtime = OvertimeRequest::findOrFail($id);
+
+        // Tentukan level otorisasi
+        $level = null;
+        if ($overtime->supervisor_title_1 === $authNip && $overtime->approval_status === 3) {
+            $level = 1;
+        } elseif ($overtime->supervisor_title_2 === $authNip && $overtime->approval_status === 4) {
+            $level = 2;
+        } elseif ($overtime->supervisor_title_3 === $authNip && $overtime->approval_status === 5) {
+            $level = 3;
+        } elseif ($isAdmin && in_array($overtime->approval_status, [3, 4, 5])) {
+            $level = match ($overtime->approval_status) {
+                3 => 1,
+                4 => 2,
+                5 => 3,
+                default => 1,
+            };
+        }
+
+        if (! $level) {
+            abort(403, 'Anda tidak memiliki hak akses atau bukan giliran Anda untuk memproses pengajuan lembur ini.');
+        }
+
+        $decision = $validated['decision'];
+        $notes    = trim($validated['notes'] ?? '');
+
+        DB::transaction(function () use ($overtime, $level, $decision, $notes, $isAdmin) {
+            if ($decision === 'reject') {
+                // Sesuai sistem lama: kd_approve = 2 (Ditolak)
+                $overtime->update([
+                    'approval_status'            => 2,
+                    "supervisor_status_{$level}" => 2,
+                    'approval_notes'             => ! empty($notes) ? $notes : ($overtime->approval_notes ?: 'Ditolak oleh Atasan'),
+                ]);
+            } else {
+                // Sesuai sistem lama: Setuju berjenjang
+                if ($isAdmin) {
+                    // Admin dapat menyetujui langsung penuh
+                    $overtime->update([
+                        'approval_status'            => 1,
+                        'supervisor_status_1'        => 1,
+                        'supervisor_status_2'        => ! empty($overtime->supervisor_title_2) ? 1 : 0,
+                        'supervisor_status_3'        => ! empty($overtime->supervisor_title_3) ? 1 : 0,
+                        "supervisor_approved_at_{$level}" => now(),
+                        'approval_notes'             => ! empty($notes) ? $notes : $overtime->approval_notes,
+                    ]);
+                } elseif ($level === 1) {
+                    $hasAcc2 = ! empty($overtime->supervisor_title_2);
+                    $overtime->update([
+                        'supervisor_status_1'      => 1,
+                        'supervisor_approved_at_1' => now(),
+                        'approval_status'          => $hasAcc2 ? 4 : 1, // Jika ada ACC 2 -> status 4 (Menunggu ACC 2), jika tidak -> Final (1)
+                        'approval_notes'           => ! empty($notes) ? $notes : $overtime->approval_notes,
+                    ]);
+                } elseif ($level === 2) {
+                    $hasAcc3 = ! empty($overtime->supervisor_title_3);
+                    $overtime->update([
+                        'supervisor_status_2'      => 1,
+                        'supervisor_approved_at_2' => now(),
+                        'approval_status'          => $hasAcc3 ? 5 : 1, // Jika ada ACC 3 -> status 5 (Menunggu ACC 3), jika tidak -> Final (1)
+                        'approval_notes'           => ! empty($notes) ? $notes : $overtime->approval_notes,
+                    ]);
+                } elseif ($level === 3) {
+                    $overtime->update([
+                        'supervisor_status_3'      => 1,
+                        'supervisor_approved_at_3' => now(),
+                        'approval_status'          => 1, // Final Approved (1)
+                        'approval_notes'           => ! empty($notes) ? $notes : $overtime->approval_notes,
+                    ]);
+                }
+            }
+        });
+
+        $msg = $decision === 'approve'
+            ? "Persetujuan SPL {$overtime->id} berhasil disimpan."
+            : "Pengajuan SPL {$overtime->id} telah ditolak.";
+
+        return redirect()->back()->with('success', $msg);
+    }
+
+    /**
+     * Proses persetujuan SPL massal (batch approval) untuk Manager / Asman / Admin.
+     * Mengikuti 100% transisi hierarki status KFPB untuk setiap berkas yang dipilih.
+     */
+    public function processBatchApproval(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'ids'   => ['required', 'array', 'min:1'],
+            'ids.*' => ['required', 'integer', 'exists:overtime_requests,id'],
+            'notes' => ['nullable', 'string', 'max:255'],
+        ], [
+            'ids.required' => 'Pilih minimal satu Surat Perintah Lembur (SPL).',
+            'ids.min'      => 'Pilih minimal satu Surat Perintah Lembur (SPL).',
+        ]);
+
+        $user    = Auth::user();
+        $authNip = $user->employee_nip;
+        $isAdmin = $user->hasAdminAccess();
+        $notes   = trim($validated['notes'] ?? '');
+
+        $successCount = 0;
+
+        DB::transaction(function () use ($validated, $authNip, $isAdmin, $notes, &$successCount) {
+            $overtimes = OvertimeRequest::whereIn('id', $validated['ids'])
+                ->whereIn('approval_status', [3, 4, 5])
+                ->get();
+
+            foreach ($overtimes as $overtime) {
+                $level = null;
+                if ($overtime->supervisor_title_1 === $authNip && $overtime->approval_status === 3) {
+                    $level = 1;
+                } elseif ($overtime->supervisor_title_2 === $authNip && $overtime->approval_status === 4) {
+                    $level = 2;
+                } elseif ($overtime->supervisor_title_3 === $authNip && $overtime->approval_status === 5) {
+                    $level = 3;
+                } elseif ($isAdmin && in_array($overtime->approval_status, [3, 4, 5])) {
+                    $level = match ($overtime->approval_status) {
+                        3 => 1,
+                        4 => 2,
+                        5 => 3,
+                        default => 1,
+                    };
+                }
+
+                // Hanya proses jika memang giliran persetujuan user yang login
+                if (! $level) {
+                    continue;
+                }
+
+                if ($isAdmin) {
+                    $overtime->update([
+                        'approval_status'                 => 1,
+                        'supervisor_status_1'             => 1,
+                        'supervisor_status_2'             => ! empty($overtime->supervisor_title_2) ? 1 : 0,
+                        'supervisor_status_3'             => ! empty($overtime->supervisor_title_3) ? 1 : 0,
+                        "supervisor_approved_at_{$level}" => now(),
+                        'approval_notes'                  => ! empty($notes) ? $notes : $overtime->approval_notes,
+                    ]);
+                } elseif ($level === 1) {
+                    $hasAcc2 = ! empty($overtime->supervisor_title_2);
+                    $overtime->update([
+                        'supervisor_status_1'      => 1,
+                        'supervisor_approved_at_1' => now(),
+                        'approval_status'          => $hasAcc2 ? 4 : 1,
+                        'approval_notes'           => ! empty($notes) ? $notes : $overtime->approval_notes,
+                    ]);
+                } elseif ($level === 2) {
+                    $hasAcc3 = ! empty($overtime->supervisor_title_3);
+                    $overtime->update([
+                        'supervisor_status_2'      => 1,
+                        'supervisor_approved_at_2' => now(),
+                        'approval_status'          => $hasAcc3 ? 5 : 1,
+                        'approval_notes'           => ! empty($notes) ? $notes : $overtime->approval_notes,
+                    ]);
+                } elseif ($level === 3) {
+                    $overtime->update([
+                        'supervisor_status_3'      => 1,
+                        'supervisor_approved_at_3' => now(),
+                        'approval_status'          => 1,
+                        'approval_notes'           => ! empty($notes) ? $notes : $overtime->approval_notes,
+                    ]);
+                }
+
+                $successCount++;
+            }
+        });
+
+        if ($successCount === 0) {
+            return redirect()->back()->with('error', 'Tidak ada SPL terpilih yang memenuhi giliran persetujuan Anda.');
+        }
+
+        return redirect()->back()->with('success', "Sebanyak {$successCount} Surat Perintah Lembur (SPL) berhasil disetujui secara massal.");
+    }
+
+    /**
+     * Helper formatting baris untuk tampilan OvertimeApproval.vue.
+     */
+    private function formatApprovalRow(OvertimeRequest $ot, ?string $authNip, bool $isAdmin): array
+    {
+        $currentLevelLabel = match ($ot->approval_status) {
+            3       => 'ACC 1',
+            4       => 'ACC 2',
+            5       => 'ACC 3',
+            1       => 'Disetujui',
+            2       => 'Ditolak',
+            default => 'Menunggu',
+        };
+
+        // Cek giliran ACC user yang login
+        $canApprove = false;
+        $myLevel = null;
+        if ($ot->supervisor_title_1 === $authNip && $ot->approval_status === 3) {
+            $canApprove = true;
+            $myLevel = 'ACC 1';
+        } elseif ($ot->supervisor_title_2 === $authNip && $ot->approval_status === 4) {
+            $canApprove = true;
+            $myLevel = 'ACC 2';
+        } elseif ($ot->supervisor_title_3 === $authNip && $ot->approval_status === 5) {
+            $canApprove = true;
+            $myLevel = 'ACC 3';
+        } elseif ($isAdmin && in_array($ot->approval_status, [3, 4, 5])) {
+            $canApprove = true;
+            $myLevel = $currentLevelLabel;
+        }
+
+        $participants = $ot->participants->map(fn ($p) => [
+            'nip'  => $p->employee_nip,
+            'name' => $p->employee?->full_name ?? '-',
+            'task' => $p->task_description,
+        ]);
+
+        return [
+            'id'                 => $ot->id,
+            'code'               => sprintf('SPL-%05d', $ot->id),
+            'legacy_id'          => $ot->legacy_id,
+            'overtime_type'      => $ot->overtime_type,
+            'type_label'         => OvertimeRequest::OVERTIME_TYPES[$ot->overtime_type] ?? 'Lembur',
+            'request_date'       => $ot->request_date?->format('d/m/Y'),
+            'start_date'         => $ot->start_date?->format('d/m/Y'),
+            'raw_start_date'     => $ot->start_date?->format('Y-m-d'),
+            'start_time'         => $ot->duration ? substr($ot->duration, 0, 5) : '-',
+            'end_time'           => $ot->reason && strlen($ot->reason) >= 5 ? substr($ot->reason, 0, 5) : '-',
+            'approval_status'    => $ot->approval_status,
+            'status_label'       => OvertimeRequest::APPROVAL_STATUS_LABELS[$ot->approval_status] ?? 'Menunggu',
+            'current_level'      => $currentLevelLabel,
+            'can_approve'        => $canApprove,
+            'my_level'           => $myLevel,
+            'applicant_nip'      => $ot->applicant_nip,
+            'applicant_name'     => $ot->applicant?->full_name ?? $ot->applicant_nip,
+            'applicant_division' => $ot->applicant?->division?->name ?? 'Plant Banjaran',
+            'applicant_position' => $ot->applicant?->position?->name ?? '-',
+            'participant_count'  => $participants->count(),
+            'participants'       => $participants,
+            'approval_notes'     => $ot->approval_notes,
+            'supervisor_1'       => $ot->supervisor_title_1,
+            'supervisor_2'       => $ot->supervisor_title_2,
+            'supervisor_3'       => $ot->supervisor_title_3,
+        ];
     }
 }

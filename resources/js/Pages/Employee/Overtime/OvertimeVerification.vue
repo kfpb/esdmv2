@@ -19,7 +19,6 @@ const props = defineProps({
 
 const toast = useToast();
 
-// Inisialisasi formulir verifikasi
 const form = useForm({
     corrected_start_time: props.overtime.corrected_start_time || props.overtime.planned_start_time || '',
     participants: props.overtime.participants.map((p) => ({
@@ -42,7 +41,6 @@ const statusOptions = [
 ];
 
 function submitVerification() {
-    // Validasi jam mulai
     if (!form.corrected_start_time) {
         toast.add({
             severity: 'error',
@@ -53,7 +51,6 @@ function submitVerification() {
         return;
     }
 
-    // Validasi bahwa peserta yang "Jadi Lembur" harus memiliki koreksi jam pulang
     for (let i = 0; i < form.participants.length; i++) {
         const p = form.participants[i];
         if (p.is_approved && !p.corrected_end_time) {
@@ -87,8 +84,6 @@ function submitVerification() {
 
     <div class="space-y-6 max-w-5xl mx-auto px-3 sm:px-6 py-2">
         <Toast position="top-right" />
-
-        <!-- ============== BREADCRUMB & HEADER ============== -->
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
             <div class="space-y-1">
                 <div class="flex items-center gap-2 text-xs font-medium text-slate-500">
@@ -116,8 +111,6 @@ function submitVerification() {
                 </Link>
             </div>
         </div>
-
-        <!-- ============== STATUS VERIFIKASI ALERT ============== -->
         <div
             v-if="overtime.is_verified"
             class="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-start gap-3"
@@ -130,8 +123,6 @@ function submitVerification() {
                 </p>
             </div>
         </div>
-
-        <!-- ============== INFORMASI SPL MASTER ============== -->
         <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
             <div class="px-5 sm:px-6 py-4 bg-gradient-to-r from-[#005BAC] to-[#004280] text-white flex items-center justify-between">
                 <div class="flex items-center gap-3">
@@ -140,7 +131,10 @@ function submitVerification() {
                     </div>
                     <div>
                         <h2 class="font-bold text-sm sm:text-base text-white tracking-tight">Data Surat Perintah Lembur</h2>
-                        <p class="text-[11px] text-blue-100">PT Kimia Farma Plant Banjaran &bull; SPL ID #{{ overtime.id }}</p>
+                        <p class="text-[11px] text-blue-100 font-mono">
+                            PT Kimia Farma Plant Banjaran &bull; {{ overtime.code || ('SPL ID #' + overtime.id) }}
+                            <span v-if="overtime.legacy_id" class="text-blue-200">(#{{ overtime.legacy_id }})</span>
+                        </p>
                     </div>
                 </div>
                 <Tag
@@ -168,10 +162,7 @@ function submitVerification() {
                     <span class="font-mono font-bold text-slate-700">{{ overtime.planned_end_time }}</span>
                 </div>
             </div>
-
-            <!-- FORMULIR VERIFIKASI -->
             <form @submit.prevent="submitVerification" class="p-5 sm:p-7 space-y-6">
-                <!-- Koreksi Jam Mulai Lembur -->
                 <div class="bg-blue-50/70 border border-blue-200/80 rounded-xl p-4 space-y-2">
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                         <div>
@@ -197,8 +188,6 @@ function submitVerification() {
                         {{ form.errors.corrected_start_time }}
                     </p>
                 </div>
-
-                <!-- Bagian Daftar Peserta Lembur Realisasi -->
                 <div class="space-y-4">
                     <div class="border-b border-slate-100 pb-2 flex items-center justify-between">
                         <h3 class="text-sm font-bold uppercase tracking-wider text-slate-700">
@@ -216,7 +205,6 @@ function submitVerification() {
                             class="border rounded-xl p-4 transition-all"
                             :class="participant.is_approved ? 'bg-white border-slate-200' : 'bg-slate-50/80 border-slate-200/60 opacity-70'"
                         >
-                            <!-- Baris Header Peserta -->
                             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
                                 <div class="flex items-center gap-2.5">
                                     <span class="size-6 rounded-full bg-slate-100 text-slate-600 font-bold text-xs flex items-center justify-center shrink-0">
@@ -238,18 +226,13 @@ function submitVerification() {
                                     />
                                 </div>
                             </div>
-
-                            <!-- Baris Detail & Input Jam -->
                             <div class="pt-3 grid grid-cols-1 sm:grid-cols-12 gap-3 text-xs sm:text-sm">
-                                <!-- Tugas Rencana -->
                                 <div class="sm:col-span-4 space-y-1">
                                     <span class="text-[11px] font-semibold text-slate-400 uppercase">Tugas Rencana</span>
                                     <div class="p-2 bg-slate-50 rounded-lg text-slate-700 text-xs border border-slate-100 min-h-[38px] flex items-center">
                                         {{ participant.task_description || '-' }}
                                     </div>
                                 </div>
-
-                                <!-- Jam Pulang Real Mesin Presensi -->
                                 <div class="sm:col-span-2 space-y-1">
                                     <span class="text-[11px] font-semibold text-slate-400 uppercase">Jam Pulang Real</span>
                                     <div class="p-2 bg-slate-100/80 rounded-lg font-mono font-bold text-slate-800 text-xs border border-slate-200 text-center min-h-[38px] flex items-center justify-center">
@@ -257,8 +240,6 @@ function submitVerification() {
                                         {{ participant.real_check_out_time }}
                                     </div>
                                 </div>
-
-                                <!-- Koreksi Jam Pulang Aktual -->
                                 <div class="sm:col-span-3 space-y-1">
                                     <span class="text-[11px] font-semibold text-slate-700 uppercase flex items-center gap-1">
                                         Koreksi Jam Pulang
@@ -272,8 +253,6 @@ function submitVerification() {
                                     />
                                     <p class="text-[10px] text-slate-400">Jam selesai riil (HH:MM)</p>
                                 </div>
-
-                                <!-- Hasil / Catatan Pekerjaan -->
                                 <div class="sm:col-span-3 space-y-1">
                                     <span class="text-[11px] font-semibold text-slate-700 uppercase">Hasil / Realisasi</span>
                                     <input
@@ -290,8 +269,6 @@ function submitVerification() {
                         </div>
                     </div>
                 </div>
-
-                <!-- Tombol Submit Form -->
                 <div class="pt-4 border-t border-slate-100 flex flex-col sm:flex-row justify-end gap-3">
                     <Link href="/lembur/ajukan">
                         <Button

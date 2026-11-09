@@ -81,10 +81,13 @@ Route::middleware('auth')->group(function () {
         Route::post('/{exitPermit}/status', [ExitPermitController::class, 'updateStatus'])->name('status');
     });
 
-    // ===== Pengajuan Lembur (SPL – Surat Perintah Lembur) & Form Verifikasi Lembur =====
+    // ===== Pengajuan Lembur (SPL – Surat Perintah Lembur), Persetujuan Atasan & Form Verifikasi =====
     Route::prefix('lembur')->name('lembur.')->group(function () {
         Route::get('/ajukan', [OvertimeController::class, 'create'])->name('create');
         Route::post('/simpan', [OvertimeController::class, 'store'])->name('store');
+        Route::get('/persetujuan', [OvertimeController::class, 'approvalIndex'])->name('approvals');
+        Route::post('/persetujuan-massal', [OvertimeController::class, 'processBatchApproval'])->name('approval.batch');
+        Route::post('/{id}/approval', [OvertimeController::class, 'processApproval'])->name('approval.process')->where('id', '[0-9]+');
         Route::get('/verifikasi/{id}', [OvertimeController::class, 'verify'])->name('verify')->where('id', '[0-9]+');
         Route::post('/verifikasi/{id}', [OvertimeController::class, 'saveVerification'])->name('verify.store')->where('id', '[0-9]+');
         Route::get('/{id}', [OvertimeController::class, 'show'])->name('show')->where('id', '[0-9]+');

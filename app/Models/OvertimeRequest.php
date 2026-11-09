@@ -52,6 +52,21 @@ class OvertimeRequest extends Model
         return $this->belongsTo(Employee::class, 'applicant_nip', 'nip');
     }
 
+    public function supervisor1(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'supervisor_title_1', 'nip');
+    }
+
+    public function supervisor2(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'supervisor_title_2', 'nip');
+    }
+
+    public function supervisor3(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'supervisor_title_3', 'nip');
+    }
+
     public function participants(): HasMany
     {
         return $this->hasMany(OvertimeParticipant::class, 'overtime_request_id');

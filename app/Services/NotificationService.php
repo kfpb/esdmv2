@@ -86,7 +86,7 @@ class NotificationService
                     'badge'      => 'Tugas Atasan',
                     'badgeClass' => 'bg-amber-100 text-amber-800',
                     'icon'       => 'pi pi-clock text-amber-600 bg-amber-50',
-                    'url'        => route('lembur.create'),
+                    'url'        => route('lembur.approvals'),
                 ]);
             }
         }
