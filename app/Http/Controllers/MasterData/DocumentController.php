@@ -1,4 +1,4 @@
-<?php
+\<?php
 
 namespace App\Http\Controllers\MasterData;
 
@@ -34,9 +34,9 @@ class DocumentController extends Controller
 
         $documents = $query->paginate($perPage)
         ->withQueryString()
-        ->through(fn ($religion) => [
-            'id' => $religion->id,
-            'name' => $religion->name,
+        ->through(fn ($document) => [
+            'id' => $document->id,
+            'name' => $document->name,
             ]);
 
         return Inertia::render('Admin/MasterData/Document/Index', [
