@@ -99,6 +99,8 @@ const openGroups = ref({
     masterData: false,
     kepegawaian: true,
     operasional: true,
+    absensi: true,
+    rekapitulasi: true,
     payroll: false,
     sistem: false,
     // Employee Groups
@@ -174,38 +176,17 @@ const userMenuItems = computed(() => {
 // Notifications Popover State
 const showNotifications = ref(false);
 const notificationWrapper = ref(null);
-const notifications = ref([
-    {
-        id: 1,
-        title: 'Pengajuan Lembur Tim Fette',
-        user: 'Ahmad Fauzi (Div. Produksi)',
-        time: '5 menit yang lalu',
-        type: 'lembur',
-        badge: 'SPL Menunggu',
-        badgeClass: 'bg-amber-100 text-amber-700',
-        icon: 'pi pi-clock text-amber-600 bg-amber-50',
-    },
-    {
-        id: 2,
-        title: 'Permohonan Cuti Tahunan',
-        user: 'Siti Sarah Nabila (Div. SDM)',
-        time: '35 menit yang lalu',
-        type: 'cuti',
-        badge: 'Cuti 3 Hari',
-        badgeClass: 'bg-indigo-100 text-indigo-700',
-        icon: 'pi pi-calendar-plus text-indigo-600 bg-indigo-50',
-    },
-    {
-        id: 3,
-        title: 'Izin Keluar Kantor (Dinas Luar)',
-        user: 'dr. Farah Anggraini (Poliklinik)',
-        time: '2 jam yang lalu',
-        type: 'izin',
-        badge: 'Dinas Luar',
-        badgeClass: 'bg-orange-100 text-[#F37021]',
-        icon: 'pi pi-external-link text-[#F37021] bg-orange-50',
-    },
-]);
+
+const notificationsData = computed(() => page.props.notifications || { count: 0, items: [] });
+const notificationCount = computed(() => notificationsData.value.count || 0);
+const notifications = computed(() => notificationsData.value.items || []);
+
+const handleNotificationClick = (item) => {
+    showNotifications.value = false;
+    if (item.url && item.url !== '#') {
+        router.visit(item.url);
+    }
+};
 
 // Quick Search Modal State
 const searchModalOpen = ref(false);
@@ -270,22 +251,17 @@ const isCurrentUrl = (path) => {
 
 <template>
     <div class="min-h-screen bg-[#f5f5f9] text-slate-700 font-sans antialiased flex">
-
-        <!-- Mobile drawer backdrop -->
         <div
             v-if="mobileSidebarOpen"
             class="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-xs lg:hidden transition-opacity"
             @click="mobileSidebarOpen = false"
         />
-
-        <!-- ================= SIDEBAR ================= -->
         <aside
             :class="[
                 'fixed top-0 bottom-0 left-0 z-50 w-68 bg-white border-r border-slate-200/80 shadow-[0_2px_12px_rgba(67,89,113,0.06)] flex flex-col transition-transform duration-300 ease-in-out lg:translate-x-0',
                 mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full',
             ]"
         >
-            <!-- Brand / Logo -->
             <div class="h-16 px-5 border-b border-slate-100 flex items-center justify-between shrink-0">
                 <Link href="/" class="flex items-center gap-3 group">
                     <div
@@ -303,8 +279,6 @@ const isCurrentUrl = (path) => {
                         </span>
                     </div>
                 </Link>
-
-                <!-- Mobile close button -->
                 <button
                     type="button"
                     class="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
@@ -313,8 +287,6 @@ const isCurrentUrl = (path) => {
                     <i class="pi pi-times text-sm" />
                 </button>
             </div>
-
-            <!-- Portal Mode Switcher / Badge Pill -->
             <div class="px-4 pt-3 pb-1">
                 <div v-if="hasAdminAccess" class="bg-slate-100/90 p-1 rounded-xl flex items-center text-xs font-medium border border-slate-200/60">
                     <button
@@ -344,8 +316,6 @@ const isCurrentUrl = (path) => {
                         <span>Pegawai Mandiri</span>
                     </button>
                 </div>
-
-                <!-- Regular Employee Portal Indicator -->
                 <div
                     v-else
                     class="px-3 py-1.5 rounded-lg bg-orange-50/80 border border-orange-200/60 text-[#F37021] text-[11px] font-semibold flex items-center gap-2"
@@ -354,15 +324,8 @@ const isCurrentUrl = (path) => {
                     <span>Portal Layanan Mandiri (ESS)</span>
                 </div>
             </div>
-
-            <!-- ================= NAVIGATION MENU ================= -->
             <nav class="flex-1 overflow-y-auto px-3.5 py-3 space-y-5 custom-scrollbar text-sm">
-
-                <!-- ################################################# -->
-                <!-- VIEW A: ADMIN & MANAJEMEN SDM (HR PORTAL)         -->
-                <!-- ################################################# -->
                 <template v-if="portalMode === 'admin'">
-                    <!-- Section: RINGKASAN UTAMA -->
                     <div>
                         <div class="px-3 mb-1.5 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
                             Utama
@@ -384,8 +347,6 @@ const isCurrentUrl = (path) => {
                             </li>
                         </ul>
                     </div>
-
-                    <!-- Section: MASTER DATA -->
                     <div>
                         <div class="px-3 mb-1.5 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
                             Master Data
@@ -598,8 +559,6 @@ const isCurrentUrl = (path) => {
                             </ul>
                         </div>
                     </div>
-
-                    <!-- Section: KEPEGAWAIAN (HR CORE) -->
                     <div>
                         <div class="px-3 mb-1.5 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
                             Manajemen Pegawai
@@ -682,8 +641,6 @@ const isCurrentUrl = (path) => {
                             </ul>
                         </div>
                     </div>
-
-                    <!-- Section: OPERASIONAL -->
                     <div>
                         <div class="px-3 mb-1.5 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
                             Operasional
@@ -824,6 +781,20 @@ const isCurrentUrl = (path) => {
                             <ul v-show="openGroups.lembur" class="pl-8 pr-1 space-y-1 pt-0.5">
                                 <li>
                                     <Link
+                                        href="/lembur/persetujuan"
+                                        :class="[
+                                            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/lembur/persetujuan')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Persetujuan Lembur</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
                                         href="/datatable"
                                         :class="[
                                             'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
@@ -893,10 +864,10 @@ const isCurrentUrl = (path) => {
                             <ul v-show="openGroups.rekapitulasi" class="pl-8 pr-1 space-y-1 pt-0.5">
                                 <li>
                                     <Link
-                                        href="/charts"
+                                        href="/admin/absensi/laporan"
                                         :class="[
                                             'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
-                                            isCurrentUrl('/charts')
+                                            isCurrentUrl('/admin/absensi/laporan') || isCurrentUrl('/absensi/laporan')
                                                 ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
                                                 : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
                                         ]"
@@ -936,8 +907,6 @@ const isCurrentUrl = (path) => {
                             </ul>
                         </div>
                     </div>
-
-                    <!-- Section: PENGGAJIAN (PAYROLL) -->
                     <div>
                         <div class="px-3 mb-1.5 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
                             Kompensasi & Gaji
@@ -1009,8 +978,6 @@ const isCurrentUrl = (path) => {
                             </ul>
                         </div>
                     </div>
-
-                    <!-- Section: PENGATURAN SISTEM -->
                     <div>
                         <div class="px-3 mb-1.5 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
                             Sistem & Konfigurasi
@@ -1074,12 +1041,7 @@ const isCurrentUrl = (path) => {
                         </div>
                     </div>
                 </template>
-
-                <!-- ################################################# -->
-                <!-- VIEW B: LAYANAN MANDIRI PEGAWAI (EMPLOYEE PORTAL) -->
-                <!-- ################################################# -->
                 <template v-else>
-                    <!-- Section: BERANDA PEGAWAI -->
                     <div>
                         <div class="px-3 mb-1.5 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
                             Beranda Pegawai
@@ -1101,8 +1063,6 @@ const isCurrentUrl = (path) => {
                             </li>
                         </ul>
                     </div>
-
-                    <!-- Section: LAYANAN MANDIRI (ESS) -->
                     <div>
                         <div class="px-3 mb-1.5 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
                             Layanan Mandiri (ESS)
@@ -1151,11 +1111,30 @@ const isCurrentUrl = (path) => {
                                 </li>
                                 <li>
                                     <Link
-                                        href="/forms"
-                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
+                                        href="/lembur/ajukan"
+                                        :class="[
+                                            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/lembur/ajukan')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
                                     >
                                         <span class="size-1.5 rounded-full bg-current shrink-0" />
                                         <span>Pengajuan Lembur (SPL Saya)</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        href="/lembur/persetujuan"
+                                        :class="[
+                                            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/lembur/persetujuan')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Persetujuan Lembur</span>
                                     </Link>
                                 </li>
                                 <li>
@@ -1201,8 +1180,6 @@ const isCurrentUrl = (path) => {
                             </ul>
                         </div>
                     </div>
-
-                    <!-- Section: PORTOFOLIO & DOKUMEN PRIBADI -->
                     <div>
                         <div class="px-3 mb-1.5 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
                             Data Pribadi
@@ -1267,8 +1244,6 @@ const isCurrentUrl = (path) => {
                     </div>
                 </template>
             </nav>
-
-            <!-- Sidebar User Quick Footer -->
             <div class="p-3.5 border-t border-slate-100 bg-slate-50/70">
                 <div class="flex items-center gap-3 p-2 rounded-xl bg-white border border-slate-200/60 shadow-xs">
                     <Avatar
@@ -1295,22 +1270,15 @@ const isCurrentUrl = (path) => {
                     />
                 </div>
             </div>
-
-            <!-- Sidebar Drawer Copyright -->
             <div class="px-4 py-2.5 border-t border-slate-100 text-[10px] text-slate-400 text-center select-none bg-slate-50/50 shrink-0">
                 <span>© 2026 E-SDM KFPB • Plant Banjaran</span>
             </div>
         </aside>
-
-        <!-- ================= MAIN WRAPPER ================= -->
         <div class="flex-1 flex flex-col min-w-0 lg:pl-68 transition-all">
-
-            <!-- ================= FLOATING TOP NAVBAR ================= -->
             <header class="sticky top-3 z-30 mx-4 sm:mx-6 mt-3 mb-2">
                 <div
                     class="bg-white/85 backdrop-blur-md rounded-xl border border-slate-200/80 shadow-[0_2px_6px_0_rgba(67,89,113,0.06)] px-4 py-2.5 flex items-center justify-between gap-3"
                 >
-                    <!-- Left: Mobile Toggle & Page Title / Breadcrumbs -->
                     <div class="flex items-center gap-3 min-w-0">
                         <button
                             type="button"
@@ -1334,11 +1302,7 @@ const isCurrentUrl = (path) => {
                             </h1>
                         </div>
                     </div>
-
-                    <!-- Right: Search, Portal Switcher, Notifications & Profile -->
                     <div class="flex items-center gap-2 sm:gap-3 shrink-0">
-
-                        <!-- Mode Switcher Quick Pill (Visible for Admins on Desktop) -->
                         <div v-if="hasAdminAccess" class="hidden md:flex items-center">
                             <button
                                 type="button"
@@ -1356,8 +1320,6 @@ const isCurrentUrl = (path) => {
                                 <i class="pi pi-sort-alt text-[10px] opacity-70" />
                             </button>
                         </div>
-
-                        <!-- Quick Search Button -->
                         <button
                             type="button"
                             class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100/80 text-slate-400 hover:text-slate-600 hover:bg-slate-100 text-xs border border-slate-200/60 transition-colors cursor-pointer"
@@ -1367,22 +1329,21 @@ const isCurrentUrl = (path) => {
                             <span class="text-slate-500">Cari menu & pegawai...</span>
                             <kbd class="ml-1 font-mono text-[10px] bg-white px-1.5 py-0.5 rounded border border-slate-200 text-slate-400">Ctrl K</kbd>
                         </button>
-
-                        <!-- Notification Button & Dropdown Popover -->
                         <div ref="notificationWrapper" class="relative">
                             <button
                                 type="button"
                                 class="relative p-2 rounded-xl text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer"
                                 @click="showNotifications = !showNotifications"
-                                title="Notifikasi Persetujuan"
+                                title="Pusat Pemberitahuan & Tugas"
                             >
                                 <i class="pi pi-bell text-lg" />
                                 <span
-                                    class="absolute top-1.5 right-1.5 size-2 rounded-full bg-rose-500 ring-2 ring-white animate-pulse"
-                                />
+                                    v-if="notificationCount > 0"
+                                    class="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-rose-600 text-white font-bold text-[10px] flex items-center justify-center ring-2 ring-white shadow-xs"
+                                >
+                                    {{ notificationCount > 99 ? '99+' : notificationCount }}
+                                </span>
                             </button>
-
-                            <!-- Notification Dropdown Popover -->
                             <div
                                 v-if="showNotifications"
                                 class="absolute -right-14 sm:right-0 mt-2 w-[calc(100vw-3rem)] sm:w-96 max-w-sm sm:max-w-none bg-white rounded-2xl shadow-xl border border-slate-200/80 z-50 p-4 transition-all"
@@ -1390,37 +1351,55 @@ const isCurrentUrl = (path) => {
                                 <div class="flex items-center justify-between pb-3 border-b border-slate-100">
                                     <div class="flex items-center gap-2">
                                         <h3 class="text-xs font-bold text-slate-800">Pemberitahuan</h3>
-                                        <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700">3 Baru</span>
+                                        <span
+                                            v-if="notificationCount > 0"
+                                            class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700"
+                                        >
+                                            {{ notificationCount }} Baru
+                                        </span>
+                                        <span
+                                            v-else
+                                            class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500"
+                                        >
+                                            Tidak ada baru
+                                        </span>
                                     </div>
                                     <button
                                         type="button"
-                                        class="text-[11px] text-[#005BAC] hover:text-[#004b8e] hover:underline font-medium cursor-pointer"
+                                        class="text-[11px] text-slate-400 hover:text-slate-600 font-medium cursor-pointer"
                                         @click="showNotifications = false"
                                     >
-                                        Tandai dibaca
+                                        Tutup
                                     </button>
                                 </div>
 
                                 <div class="divide-y divide-slate-100 max-h-[60vh] sm:max-h-80 overflow-y-auto custom-scrollbar my-1">
+                                    <div v-if="notifications.length === 0" class="py-8 text-center text-slate-400">
+                                        <i class="pi pi-bell-slash text-2xl text-slate-300 mb-2 block" />
+                                        <p class="text-xs font-medium text-slate-600">Tidak ada pemberitahuan baru</p>
+                                        <p class="text-[11px] text-slate-400 mt-0.5">Semua tugas persetujuan dan verifikasi telah selesai.</p>
+                                    </div>
+
                                     <div
                                         v-for="item in notifications"
                                         :key="item.id"
-                                        class="py-2.5 px-1 hover:bg-slate-50/80 rounded-lg flex items-start gap-3 transition-colors cursor-pointer"
+                                        class="py-2.5 px-1.5 hover:bg-slate-50/90 rounded-lg flex items-start gap-3 transition-colors cursor-pointer"
+                                        @click="handleNotificationClick(item)"
                                     >
-                                        <div :class="['p-2 rounded-xl shrink-0 mt-0.5', item.icon]">
-                                            <i class="pi text-xs" />
+                                        <div :class="['size-8 rounded-xl shrink-0 mt-0.5 flex items-center justify-center', item.icon]">
+                                            <i :class="item.icon.split(' ')[0] + ' ' + item.icon.split(' ')[1]" class="text-xs" />
                                         </div>
                                         <div class="min-w-0 flex-1">
                                             <div class="flex items-center justify-between gap-1 mb-0.5">
-                                                <p class="text-xs font-semibold text-slate-800 truncate">
+                                                <p class="text-xs font-bold text-slate-800 truncate">
                                                     {{ item.title }}
                                                 </p>
                                                 <span :class="['text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0', item.badgeClass]">
                                                     {{ item.badge }}
                                                 </span>
                                             </div>
-                                            <p class="text-[11px] text-slate-500 truncate">
-                                                {{ item.user }}
+                                            <p class="text-[11px] text-slate-600 line-clamp-2 leading-relaxed">
+                                                {{ item.message }}
                                             </p>
                                             <span class="text-[10px] text-slate-400 mt-1 block">
                                                 {{ item.time }}
@@ -1428,21 +1407,8 @@ const isCurrentUrl = (path) => {
                                         </div>
                                     </div>
                                 </div>
-
-                                <div class="pt-2 border-t border-slate-100 text-center">
-                                    <Link
-                                        href="/forms"
-                                        class="text-xs font-semibold text-[#005BAC] hover:text-[#004b8e] inline-flex items-center gap-1"
-                                        @click="showNotifications = false"
-                                    >
-                                        <span>Buka Pusat Verifikasi</span>
-                                        <i class="pi pi-arrow-right text-[10px]" />
-                                    </Link>
-                                </div>
                             </div>
                         </div>
-
-                        <!-- User Profile Dropdown Button -->
                         <div class="flex items-center pl-2 border-l border-slate-200/80">
                             <button
                                 type="button"
@@ -1478,13 +1444,9 @@ const isCurrentUrl = (path) => {
                     </div>
                 </div>
             </header>
-
-            <!-- ================= MAIN BODY CONTENT ================= -->
             <main class="flex-1 px-4 sm:px-6 py-4">
                 <slot />
             </main>
-
-            <!-- ================= MODERN FOOTER ================= -->
             <footer class="px-4 sm:px-6 py-4 border-t border-slate-200/60 text-xs text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-2.5 mt-auto bg-white/40 shrink-0 text-center sm:text-left">
                 <div class="flex items-center justify-center sm:justify-start gap-1.5 flex-wrap">
                     <span>© 2026</span>
@@ -1499,8 +1461,6 @@ const isCurrentUrl = (path) => {
                 </div>
             </footer>
         </div>
-
-        <!-- ================= QUICK SEARCH MODAL (CTRL+K) ================= -->
         <div
             v-if="searchModalOpen"
             class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-start justify-center pt-20 px-4"

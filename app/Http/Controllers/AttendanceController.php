@@ -69,7 +69,10 @@ class AttendanceController extends Controller
             ->where('leave_requests.employee_nip', $nip)
             ->where('leave_requests.start_date', '<=', $today)
             ->where('leave_requests.end_date', '>=', $today)
-            ->where('leave_requests.approval_status', 'Approved')
+            ->where(function ($q) {
+                $q->where('leave_requests.approval_status', 1)
+                    ->orWhere('leave_requests.approval_status', 'Approved');
+            })
             ->select('leave_types.name as leave_name', 'leave_requests.reason')
             ->first();
 
@@ -422,11 +425,19 @@ class AttendanceController extends Controller
             ->whereBetween('attendance_date', [$startOfMonth, $today])
             ->get();
 
+        $hadir       = $records->where('is_present_in', true)->count();
+        $terlambat   = $records->where('is_late', true)->count();
+        $pulangCepat = $records->where('is_early_leave', true)->count();
+        $potongan    = (int) $records->sum('deduction_amount');
+
         return [
-            'hadir'         => $records->where('is_present_in', true)->count(),
-            'terlambat'     => $records->where('is_late', true)->count(),
-            'pulangCepat'   => $records->where('is_early_leave', true)->count(),
-            'totalPotongan' => (int) $records->sum('deduction_amount'),
+            'hadir'           => $hadir,
+            'total_hadir'     => $hadir,
+            'terlambat'       => $terlambat,
+            'total_terlambat' => $terlambat,
+            'pulangCepat'     => $pulangCepat,
+            'totalPotongan'   => $potongan,
+            'total_potongan'  => $potongan,
         ];
     }
 
@@ -536,54 +547,75 @@ class AttendanceController extends Controller
     public function employeeReport(Request $request): Response
     {
         $user       = Auth::user();
+        $isAdmin    = $user->hasAdminAccess();
         $currentNip = $user->employee_nip ?? $user->nip;
-        $employee   = Employee::where('nip', $currentNip)->with(['division', 'position'])->first();
+        $employee   = $currentNip ? Employee::where('nip', $currentNip)->with(['division', 'position'])->first() : null;
 
         // 1. Ambil daftar bawahan jika user adalah atasan (supervisor / admin)
         $subordinateNips = [];
-        try {
-            $node = OrganizationStructure::findByNip($currentNip);
-            $subordinateNips = $node ? $node->getSubordinateNips() : [];
-        } catch (\Throwable $e) {
-            $subordinateNips = [];
+        if ($currentNip) {
+            try {
+                $node = OrganizationStructure::findByNip($currentNip);
+                $subordinateNips = $node ? $node->getSubordinateNips() : [];
+            } catch (\Throwable $e) {
+                $subordinateNips = [];
+            }
         }
 
-        $isSupervisor = $user->isSupervisor() || count($subordinateNips) > 0 || $user->hasAdminAccess();
+        $isSupervisor = $user->isSupervisor() || count($subordinateNips) > 0 || $isAdmin;
 
-        // 2. Tentukan target NIP yang sedang dilihat
+        // 2. Pilihan daftar pegawai untuk dropdown filter
+        $employeeOptions = [];
+        if ($isAdmin) {
+            // Admin dapat melihat seluruh pegawai aktif di KFPB
+            $allEmployees = Employee::orderBy('full_name')->get(['nip', 'full_name']);
+            foreach ($allEmployees as $emp) {
+                $employeeOptions[] = [
+                    'nip'  => $emp->nip,
+                    'name' => "{$emp->nip} - {$emp->full_name}",
+                ];
+            }
+        } else {
+            if ($currentNip) {
+                $employeeOptions[] = [
+                    'nip'  => $currentNip,
+                    'name' => ($employee?->full_name ?? $currentNip) . ' (Diri Sendiri)',
+                ];
+            }
+            if ($isSupervisor && count($subordinateNips) > 0) {
+                $subs = Employee::whereIn('nip', $subordinateNips)->orderBy('full_name')->get(['nip', 'full_name']);
+                foreach ($subs as $sub) {
+                    $employeeOptions[] = [
+                        'nip'  => $sub->nip,
+                        'name' => "{$sub->nip} - {$sub->full_name}",
+                    ];
+                }
+            }
+        }
+
+        // 3. Tentukan target NIP yang sedang dilihat
         $requestedNip = trim((string) $request->input('nip', ''));
         if (! empty($requestedNip)) {
             // Validasi otorisasi: hanya izinkan jika diri sendiri, atau admin, atau bawahan sah
-            if ($requestedNip === $currentNip || $user->hasAdminAccess() || in_array($requestedNip, $subordinateNips)) {
+            if ($isAdmin || $requestedNip === $currentNip || in_array($requestedNip, $subordinateNips)) {
                 $targetNip = $requestedNip;
             } else {
                 $targetNip = $currentNip;
             }
         } else {
-            $targetNip = $currentNip;
-        }
-
-        $targetEmployee = ($targetNip === $currentNip)
-            ? $employee
-            : Employee::where('nip', $targetNip)->with(['division', 'position'])->first();
-
-        // 3. Pilihan daftar pegawai untuk dropdown filter
-        $employeeOptions = [
-            [
-                'nip'  => $currentNip,
-                'name' => ($employee?->full_name ?? $currentNip) . ' (Diri Sendiri)',
-            ],
-        ];
-
-        if ($isSupervisor && count($subordinateNips) > 0) {
-            $subs = Employee::whereIn('nip', $subordinateNips)->orderBy('full_name')->get(['nip', 'full_name']);
-            foreach ($subs as $sub) {
-                $employeeOptions[] = [
-                    'nip'  => $sub->nip,
-                    'name' => "{$sub->nip} - {$sub->full_name}",
-                ];
+            // Jika requestedNip kosong: prioritaskan currentNip (jika valid), atau pegawai pertama jika akun admin tanpa NIP
+            if ($currentNip && Employee::where('nip', $currentNip)->exists()) {
+                $targetNip = $currentNip;
+            } elseif ($isAdmin && ! empty($employeeOptions)) {
+                $targetNip = $employeeOptions[0]['nip'];
+            } else {
+                $targetNip = $currentNip;
             }
         }
+
+        $targetEmployee = ($targetNip === $currentNip && $employee)
+            ? $employee
+            : Employee::where('nip', $targetNip)->with(['division', 'position'])->first();
 
         // 4. Filter rentang tanggal (default awal bulan berjalan s/d akhir bulan berjalan agar mencakup 1 bulan full)
         $startDate = $request->input('awal', $request->input('start_date', now('Asia/Jakarta')->startOfMonth()->toDateString()));
@@ -768,6 +800,7 @@ class AttendanceController extends Controller
             ],
             'employeeOptions'  => $employeeOptions,
             'isSupervisor'     => $isSupervisor,
+            'isAdmin'          => $isAdmin,
             'filters'          => [
                 'nip'        => $targetNip,
                 'start_date' => $startDate,

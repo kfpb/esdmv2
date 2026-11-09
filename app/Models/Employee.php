@@ -19,6 +19,7 @@ class Employee extends Model
     protected $casts = [
         'birth_date' => 'date',
         'join_date' => 'date',
+        'contract_end_date' => 'date',
         'decree_date' => 'date',
         'retirement_date' => 'date',
         'is_active' => 'boolean',

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\ExitPermitController;
+use App\Http\Controllers\OvertimeController;
 use App\Http\Controllers\PermissionRequestController;
 use App\Http\Controllers\MasterData\DivisionController;
 use App\Http\Controllers\MasterData\SubDivisionController;
@@ -67,6 +68,9 @@ Route::middleware('auth')->group(function () {
     //  Laporan & Rekapitulasi Izin Pegawai admin 
     Route::get('/admin/izin', [PermissionRequestController::class, 'index'])->name('admin.izin.index');
 
+    //  Laporan Rekapitulasi Absensi Pegawai Admin (Seluruh Karyawan KFPB)
+    Route::get('/admin/absensi/laporan', [AttendanceController::class, 'employeeReport'])->name('admin.absensi.laporan');
+
     //  Modul Izin Keluar Kantor (Layanan Pegawai, Approval Atasan & Scanner Satpam)
     Route::prefix('izin-keluar')->name('izin-keluar.')->group(function () {
         Route::get('/', [ExitPermitController::class, 'employeeIndex'])->name('index');
@@ -83,13 +87,23 @@ Route::middleware('auth')->group(function () {
         Route::post('/{exitPermit}/status', [ExitPermitController::class, 'updateStatus'])->name('status');
     });
 
+    // ===== Pengajuan Lembur (SPL – Surat Perintah Lembur), Persetujuan Atasan & Form Verifikasi =====
+    Route::prefix('lembur')->name('lembur.')->group(function () {
+        Route::get('/ajukan', [OvertimeController::class, 'create'])->name('create');
+        Route::post('/simpan', [OvertimeController::class, 'store'])->name('store');
+        Route::get('/persetujuan', [OvertimeController::class, 'approvalIndex'])->name('approvals');
+        Route::post('/persetujuan-massal', [OvertimeController::class, 'processBatchApproval'])->name('approval.batch');
+        Route::post('/{id}/approval', [OvertimeController::class, 'processApproval'])->name('approval.process')->where('id', '[0-9]+');
+        Route::get('/verifikasi/{id}', [OvertimeController::class, 'verify'])->name('verify')->where('id', '[0-9]+');
+        Route::post('/verifikasi/{id}', [OvertimeController::class, 'saveVerification'])->name('verify.store')->where('id', '[0-9]+');
+        Route::get('/{id}', [OvertimeController::class, 'show'])->name('show')->where('id', '[0-9]+');
+    });
+
     // ===== Master Data (Admin / HRD) =====
     Route::prefix('admin')->name('admin.')->group(function () {
         Route::prefix('master_data')->name('master_data.')->group(function () {
-            Route::resource('division',DivisionController::class)->except(['create', 'edit', 'show']);
-
+            Route::resource('division', DivisionController::class)->except(['create', 'edit', 'show']);
             Route::resource('sub_division', SubDivisionController::class)->except(['create', 'edit', 'show']);
-
             Route::resource('religion', ReligionController::class)->except(['create', 'edit', 'show']);
 
             Route::resource('work_shift', WorkShiftController::class)->except(['create', 'edit', 'show']);
