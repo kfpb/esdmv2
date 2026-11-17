@@ -51,8 +51,23 @@ class OvertimeController extends Controller
                 'label'     => "{$emp->full_name} ({$emp->nip})",
             ]);
 
-        // Riwayat 15 pengajuan lembur terakhir milik pegawai yang login
-        $recentOvertime = OvertimeRequest::where('applicant_nip', $authNip)
+        // Riwayat 15 pengajuan lembur terakhir
+        // Jika SPV: SPL yang diajukan oleh pemohon ($authNip)
+        // Jika Pelaksana: SPL di mana pegawai terdaftar sebagai peserta atau pemohon
+        $canCreateOvertime = $user->canCreateOvertime();
+        $isSupervisor      = $user->isSupervisorOrAbove();
+
+        $recentOvertimeQuery = OvertimeRequest::query();
+        if ($canCreateOvertime) {
+            $recentOvertimeQuery->where('applicant_nip', $authNip);
+        } else {
+            $recentOvertimeQuery->where(function ($q) use ($authNip) {
+                $q->where('applicant_nip', $authNip)
+                    ->orWhereHas('participants', fn ($sub) => $sub->where('employee_nip', $authNip));
+            });
+        }
+
+        $recentOvertime = $recentOvertimeQuery
             ->orderByDesc('request_date')
             ->take(15)
             ->get()
@@ -64,7 +79,17 @@ class OvertimeController extends Controller
             ->whereNull('end_date')
             ->count();
 
+        $requestedTab = $request->query('tab');
+        if ($requestedTab === 'history' || $requestedTab === 'riwayat') {
+            $initialTab = 'history';
+        } elseif ($requestedTab === 'form') {
+            $initialTab = 'form';
+        } else {
+            $initialTab = ($canCreateOvertime && $pendingVerification === 0) ? 'form' : 'history';
+        }
+
         return Inertia::render('Employee/Overtime/OvertimeRequest', [
+            'pageTitle' => 'Pengajuan Lembur (SPL)',
             'authEmployee' => [
                 'nip'          => $authNip,
                 'name'         => $employee?->full_name ?? $user->name,
@@ -72,11 +97,15 @@ class OvertimeController extends Controller
                 'sub_division' => $employee?->subDivision?->name ?? '-',
                 'position'     => $employee?->position?->name ?? 'Pegawai',
             ],
+            'canCreateOvertime'        => $canCreateOvertime,
+            'isSupervisor'             => $isSupervisor,
+            'userLevel'                => $canCreateOvertime ? 'Supervisor' : 'Pelaksana',
             'overtimeTypes'           => OvertimeRequest::OVERTIME_TYPES,
             'supervisorCandidates'    => $supervisorCandidates,
             'allEmployees'            => $allEmployees,
             'recentOvertime'          => $recentOvertime,
             'pendingVerificationCount' => $pendingVerification,
+            'initialTab'               => $initialTab,
         ]);
     }
 
@@ -86,6 +115,13 @@ class OvertimeController extends Controller
      */
     public function store(StoreOvertimeRequest $request): RedirectResponse
     {
+        $user = Auth::user();
+        if (! $user->canCreateOvertime()) {
+            return redirect()
+                ->route('lembur.create')
+                ->with('error', 'Pembuatan Surat Perintah Lembur (SPL) hanya dapat dilakukan oleh pejabat tingkat Supervisor (SPV) ke atas. Pelaksana ditugaskan langsung oleh atasan.');
+        }
+
         $nip         = $request->input('applicant_nip');
         $overtimeType = (int) $request->input('overtime_type');
         $startDate   = $request->input('start_date');
@@ -138,7 +174,7 @@ class OvertimeController extends Controller
         });
 
         return redirect()
-            ->route('lembur.create')
+            ->route('lembur.create', ['tab' => 'history'])
             ->with('success', 'Surat Perintah Lembur (SPL) berhasil diajukan. Mohon informasikan kepada Atasan Anda untuk segera melakukan persetujuan.');
     }
 
@@ -581,10 +617,21 @@ class OvertimeController extends Controller
             ->get()
             ->map(fn ($ot) => $this->formatApprovalRow($ot, $authNip, $isAdmin));
 
+        $canApproveOvertime = $user->canApproveOvertime();
+        $isSupervisor       = $user->isSupervisorOrAbove();
+
+        $requestedTab = $request->query('tab');
+        $initialTab   = in_array($requestedTab, ['history', 'riwayat'], true) ? 'history' : 'pending';
+
         return Inertia::render('Employee/Overtime/OvertimeApproval', [
-            'pendingApprovals' => $pendingApprovals,
-            'historyApprovals' => $historyApprovals,
-            'isAdmin'          => $isAdmin,
+            'pageTitle'          => 'Persetujuan Lembur',
+            'pendingApprovals'   => $pendingApprovals,
+            'historyApprovals'   => $historyApprovals,
+            'isAdmin'            => $isAdmin,
+            'canApproveOvertime' => $canApproveOvertime,
+            'isSupervisor'       => $isSupervisor,
+            'userLevel'          => $canApproveOvertime ? 'Supervisor' : 'Pelaksana',
+            'initialTab'         => $initialTab,
         ]);
     }
 

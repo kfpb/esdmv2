@@ -60,10 +60,21 @@ class User extends Authenticatable
             || $this->isAdmin();
     }
 
-    public function isSupervisor(): bool
+    public function isSupervisorOrAbove(): bool
     {
-        if (in_array($this->role, ['supervisor', 'admin', 'superadmin', 'director'])) {
+        if (in_array($this->role, ['supervisor', 'admin', 'superadmin', 'director', 'hrd', 'manager', 'asman'])) {
             return true;
+        }
+
+        // Cek nama atau level jabatan pada data pegawai
+        if ($this->employee && $this->employee->position) {
+            $posName = strtoupper($this->employee->position->name ?? '');
+            if (preg_match('/(SUPERVISOR|SPV|ASMAN|ASISTEN MANAJER|MANAGER|MANAJER|GENERAL MANAGER|GM|KEPALA|DIREKTUR|KOORDINATOR)/', $posName)) {
+                return true;
+            }
+            if ($this->employee->position->type === 'Structural' || (int) ($this->employee->position->level ?? 1) >= 2) {
+                return true;
+            }
         }
 
         // Cek apakah NIP ini memiliki bawahan di struktur organisasi (OrganizationStructure)
@@ -76,6 +87,32 @@ class User extends Authenticatable
             } catch (\Throwable $e) {
                 // Ignore fallback
             }
+        }
+
+        return false;
+    }
+
+    public function isSupervisor(): bool
+    {
+        return $this->isSupervisorOrAbove();
+    }
+
+    public function canCreateOvertime(): bool
+    {
+        return $this->isSupervisorOrAbove();
+    }
+
+    public function canApproveOvertime(): bool
+    {
+        if ($this->isSupervisorOrAbove()) {
+            return true;
+        }
+
+        if (! empty($this->employee_nip)) {
+            return OvertimeRequest::where('supervisor_title_1', $this->employee_nip)
+                ->orWhere('supervisor_title_2', $this->employee_nip)
+                ->orWhere('supervisor_title_3', $this->employee_nip)
+                ->exists();
         }
 
         return false;
