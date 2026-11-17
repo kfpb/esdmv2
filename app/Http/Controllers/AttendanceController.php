@@ -177,7 +177,7 @@ class AttendanceController extends Controller
                 'koordinat' => $loc->polygon_coordinates ?? [],
             ]);
 
-        // 9. Top 5 Paling Terlambat Hari Ini (eSDM)
+        // 9. Data 5 Paling Terlambat Hari Ini (eSDM)
         $topLateToday = Attendance::where('attendance_date', $today)
             ->where('is_late', true)
             ->whereNotNull('check_in_time')
@@ -192,7 +192,7 @@ class AttendanceController extends Controller
                 'shift'    => $att->workShift?->name ?? 'Reguler',
             ]);
 
-        // 10. Top 5 Keterlambatan Absen Wajah Hari Ini (Biometrik Face-ID)
+        // 10. Data 5 Keterlambatan Absen Wajah Hari Ini (Biometrik Face-ID)
         $topLateBiometric = DB::table('face_biometrics')
             ->join('employees', 'face_biometrics.employee_nip', '=', 'employees.nip')
             ->leftJoin('divisions', 'employees.division_id', '=', 'divisions.id')
@@ -214,6 +214,7 @@ class AttendanceController extends Controller
             ]);
 
         return Inertia::render('Employee/Dashboard', [
+            'pageTitle'          => 'Presensi Harian',
             'todayAttendance'    => $todayAttendance ? $this->formatAttendance($todayAttendance) : null,
             'faceCheckIn'        => $faceCheckIn,
             'faceCheckOut'       => $faceCheckOut,
@@ -325,7 +326,7 @@ class AttendanceController extends Controller
 
         $message = $isLate
             ? "Absen masuk tercatat: {$currentTime} WIB (Terlambat)."
-            : "Absen masuk berhasil! Jam masuk: {$currentTime} WIB — Tepat Waktu.";
+            : "Absen masuk berhasil. Jam masuk: {$currentTime} WIB (Tepat Waktu).";
 
         return back()->with('success', $message);
     }
@@ -779,8 +780,8 @@ class AttendanceController extends Controller
             ];
         }
 
-        // Urutkan tanggal terbaru di atas untuk tampilan tabel
-        usort($records, fn ($a, $b) => strcmp($b['date'], $a['date']));
+        // Urutkan kronologis dari tanggal awal (1) s/d akhir periode (30/31) sesuai lembar absensi
+        usort($records, fn ($a, $b) => strcmp($a['date'], $b['date']));
 
         $totalRecord = count($records);
         $totalHadir  = count(array_filter($records, fn ($r) => in_array($r['status'], ['Hadir Tepat Waktu', 'Terlambat']) || $r['badge_type'] === 'lembur_libur'));
@@ -791,6 +792,7 @@ class AttendanceController extends Controller
         $totalLibur  = count(array_filter($records, fn ($r) => in_array($r['badge_type'], ['weekend', 'libur_nasional'])));
 
         return Inertia::render('Employee/AttendanceReport', [
+            'pageTitle'        => 'Laporan Absensi Karyawan',
             'attendances'      => $records,
             'targetEmployee'   => [
                 'nip'       => $targetEmployee?->nip ?? $targetNip,
