@@ -182,26 +182,43 @@ class PermissionRequestController extends Controller
                 ]);
         }
 
-        // 3. Riwayat 5 pengajuan izin terakhir untuk pegawai saat ini
+        // 3. Riwayat 30 pengajuan izin terakhir untuk pegawai saat ini
         $recentRequests = PermissionRequest::where('employee_nip', $authNip)
             ->with('permissionType')
             ->latest('created_at')
-            ->take(5)
+            ->take(30)
             ->get()
-            ->map(fn ($perm) => [
-                'id'              => $perm->id,
-                'type_name'       => $perm->permissionType?->name ?? 'Izin',
-                'start_date'      => $perm->start_date?->format('d/m/Y'),
-                'end_date'        => $perm->end_date?->format('d/m/Y'),
-                'raw_start_date'  => $perm->start_date?->format('Y-m-d'),
-                'raw_end_date'    => $perm->end_date?->format('Y-m-d'),
-                'reason'          => $perm->reason ?? '-',
-                'attachment_url'  => $perm->attachment_url,
-                'approval_status' => $perm->approval_status,
-                'created_at'      => $perm->created_at?->format('d/m/Y H:i'),
-            ]);
+            ->map(function ($perm) {
+                $durasi = ($perm->start_date && $perm->end_date)
+                    ? ($perm->start_date->diffInDays($perm->end_date) + 1)
+                    : 1;
+                $attachmentUrl = $perm->attachment_url;
+                $isPdf = $attachmentUrl
+                    ? str_ends_with(strtolower($attachmentUrl), '.pdf')
+                    : false;
+
+                return [
+                    'id'              => $perm->id,
+                    'type_name'       => $perm->permissionType?->name ?? 'Izin',
+                    'start_date'      => $perm->start_date?->format('d/m/Y'),
+                    'end_date'        => $perm->end_date?->format('d/m/Y'),
+                    'raw_start_date'  => $perm->start_date?->format('Y-m-d'),
+                    'raw_end_date'    => $perm->end_date?->format('Y-m-d'),
+                    'duration_days'   => $durasi,
+                    'reason'          => $perm->reason ?? '-',
+                    'attachment_url'  => $attachmentUrl,
+                    'is_pdf'          => $isPdf,
+                    'approval_status' => $perm->approval_status,
+                    'created_at'      => $perm->created_at?->format('d/m/Y H:i'),
+                ];
+            });
+
+        $initialTab = in_array($request->query('tab'), ['form', 'history'], true)
+            ? $request->query('tab')
+            : 'form';
 
         return Inertia::render('Employee/PermissionRequest', [
+            'pageTitle'       => 'Lapor Tidak Masuk Kerja',
             'authEmployee' => [
                 'nip'       => $authNip,
                 'name'      => $employee?->full_name ?? $user->name,
@@ -212,6 +229,7 @@ class PermissionRequestController extends Controller
             'employees'       => $employees,
             'permissionTypes' => $permissionTypes,
             'recentRequests'  => $recentRequests,
+            'initialTab'      => $initialTab,
         ]);
     }
 
@@ -286,7 +304,16 @@ class PermissionRequestController extends Controller
             }
         });
 
-        return redirect()->route('absensi.dashboard')->with('success', 'Laporan izin tidak masuk kerja berhasil disimpan dan disinkronkan ke rekap presensi.');
+        $authNip = Auth::user()->employee_nip;
+        if ($nip !== $authNip) {
+            return redirect()
+                ->route('izin.create')
+                ->with('success', "Laporan izin tidak masuk kerja untuk NIP {$nip} berhasil disimpan dan disinkronkan ke rekap presensi.");
+        }
+
+        return redirect()
+            ->route('izin.create', ['tab' => 'history'])
+            ->with('success', 'Laporan izin tidak masuk kerja berhasil disimpan dan disinkronkan ke rekap presensi.');
     }
 }
 
