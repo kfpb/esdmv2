@@ -1,11 +1,12 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
-import { useForm, usePage, Link, Head } from '@inertiajs/vue3';
+import { useForm, usePage, Link, Head, router } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import Button from 'primevue/button';
 import Select from 'primevue/select';
 import Tag from 'primevue/tag';
 import InputText from 'primevue/inputtext';
+import Dialog from 'primevue/dialog';
 import { useToast } from 'primevue/usetoast';
 import Toast from 'primevue/toast';
 
@@ -28,9 +29,9 @@ const props = defineProps({
     employee:          { type: Object, default: null },
 });
 
-const authPage     = usePage();
-const toast        = useToast();
-const employeeNip  = computed(() => props.employee?.nip || authPage.props.auth?.user?.employee_nip || '-');
+const authPage = usePage();
+const toast = useToast();
+const employeeNip = computed(() => props.employee?.nip || authPage.props.auth?.user?.employee_nip || '-');
 const rawEmployeeName = computed(() => props.employee?.name || authPage.props.auth?.user?.name || 'Pegawai KFPB');
 
 function toTitleCase(text) {
@@ -38,7 +39,7 @@ function toTitleCase(text) {
     return text
         .toLowerCase()
         .split(' ')
-        .map(word => {
+        .map((word) => {
             if (word === '&' || word === 'dan' || word === 'di' || word === 'ke' || word === 'dari') {
                 return word === '&' ? '&' : word;
             }
@@ -60,6 +61,9 @@ const greetingName = computed(() => {
 
 const formattedPosition = computed(() => toTitleCase(props.employee?.position || 'Staf Pegawai'));
 const formattedDivision = computed(() => toTitleCase(props.employee?.division || 'Plant Banjaran'));
+const currentMonthLabel = computed(() =>
+    new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date())
+);
 
 // Daftar presensi terpaginasi (maks 3 per halaman)
 const attendanceList = computed(() => {
@@ -67,7 +71,7 @@ const attendanceList = computed(() => {
     return props.recentAttendances?.data || [];
 });
 
-// Flash notification dari backend (reaktif memantau setiap respons Inertia)
+// Flash notification dari backend
 watch(
     () => authPage.props.flash?.success,
     (msg) => {
@@ -99,56 +103,62 @@ watch(
 );
 
 // ===== State Geolocation & Leaflet Peta =====
-const gpsLat      = ref(null);
-const gpsLon      = ref(null);
-const gpsReady    = ref(false);
-const insideZone  = ref(false);
+const gpsLat = ref(null);
+const gpsLon = ref(null);
+const gpsReady = ref(false);
+const insideZone = ref(false);
 const currentZoneName = ref(null);
-const gpsError    = ref('');
-const isLocating  = ref(false);
-const isDevMode   = ref(false);
+const gpsError = ref('');
+const isLocating = ref(false);
+const isDevMode = ref(false);
 const isSimulated = ref(false);
 
-const mapCheckInContainer  = ref(null);
+const mapCheckInContainer = ref(null);
 const mapCheckOutContainer = ref(null);
-const mapLoadError         = ref(false);
+const mapLoadError = ref(false);
 
-let leafletMapIn        = null;
-let leafletMapOut       = null;
-let markerIn            = null;
-let markerOut           = null;
-let watchId             = null;
+let leafletMapIn = null;
+let leafletMapOut = null;
+let markerIn = null;
+let markerOut = null;
+let watchId = null;
 const activeLeafletTimers = new Set();
 
-// Accordion Keterlambatan Absen Wajah
-const showLateBiometric = ref(false);
+// Progressive disclosure & loading states
+const showGeofenceZones = ref(false);
+const lateTab = ref('esdm');
+const isPaginatingHistory = ref(false);
+const showEarlyCheckoutDialog = ref(false);
+let pendingHistoryNav = false;
+let removeStartListener = null;
+let removeFinishListener = null;
 
 // ===== State Jam Realtime Digital =====
 const realtimeClock = ref('--:--:--');
-let clockInterval   = null;
+let clockInterval = null;
 
 // ===== Formulir Presensi =====
 const checkInForm = useForm({
     work_shift_id: props.frequentShiftId,
-    work_mode:     'WFO',
-    latitude:      '',
-    longitude:     '',
+    work_mode: 'WFO',
+    latitude: '',
+    longitude: '',
 });
 
 const workModeOptions = [
     { label: 'Work From Office (WFO)', value: 'WFO' },
-    { label: 'Flexi Time',             value: 'FLEXI' },
-    { label: 'PKL / Magang',           value: 'PKL' },
+    { label: 'Flexi Time', value: 'FLEXI' },
+    { label: 'PKL / Magang', value: 'PKL' },
 ];
 
 const selectedShift = computed(() =>
-    props.workShifts.find(s => s.id === checkInForm.work_shift_id) ?? null
+    props.workShifts.find((s) => s.id === checkInForm.work_shift_id) ?? null
 );
 
 const checkOutForm = useForm({
-    latitude:  '',
+    latitude: '',
     longitude: '',
-    notes:     '',
+    notes: '',
 });
 
 // Status Alur Presensi Hari Ini
@@ -156,54 +166,208 @@ const attendanceStatus = computed(() => {
     if (props.activeLeave) return 'leave';
     if (!props.todayAttendance) return 'none';
     if (props.todayAttendance.is_present_in && !props.todayAttendance.check_out_time) return 'in';
-    if (props.todayAttendance.is_present_in && props.todayAttendance.check_out_time)  return 'complete';
+    if (props.todayAttendance.is_present_in && props.todayAttendance.check_out_time) return 'complete';
     return 'none';
 });
 
-const zoneStatusState = computed(() => {
+const activeWorkMode = computed(() =>
+    attendanceStatus.value === 'in'
+        ? (props.todayAttendance?.work_mode ?? 'WFO')
+        : checkInForm.work_mode
+);
+
+const requiresGeofence = computed(() => activeWorkMode.value === 'WFO');
+
+const effectiveLocationState = computed(() => {
     if (isLocating.value) {
         return {
-            tagValue: 'Mendeteksi GPS',
-            tagSeverity: 'secondary',
+            severity: 'neutral',
             boxClass: 'bg-slate-50 border-slate-200 text-slate-800',
-            iconClass: 'pi pi-spin pi-spinner text-[#005BAC]',
-            title: 'Sedang mengambil koordinat lokasi...',
-            description: 'Pastikan izin lokasi browser aktif untuk verifikasi area Plant Banjaran.',
+            iconClass: 'pi pi-spin motion-reduce:animate-none pi-spinner text-[#005BAC]',
+            title: 'Mendeteksi lokasi GPS...',
+            detail: 'Pastikan izin lokasi browser aktif.',
         };
     }
     if (!gpsReady.value) {
         return {
-            tagValue: 'GPS Belum Aktif',
-            tagSeverity: 'warn',
+            severity: 'warn',
             boxClass: 'bg-amber-50 border-amber-200 text-amber-900',
             iconClass: 'pi pi-exclamation-triangle text-amber-700',
             title: 'Sinyal GPS belum tersedia',
-            description: gpsError.value || 'Aktifkan GPS atau ulangi deteksi lokasi sebelum melakukan absen.',
+            detail: gpsError.value || 'Aktifkan GPS lalu klik Ulangi GPS.',
+        };
+    }
+    if (!requiresGeofence.value) {
+        return {
+            severity: 'info',
+            boxClass: 'bg-blue-50 border-blue-200 text-[#004280]',
+            iconClass: 'pi pi-check-circle text-[#005BAC]',
+            title: `Lokasi siap (Mode ${activeWorkMode.value})`,
+            detail: 'Mode ini tidak dibatasi area gedung pabrik.',
         };
     }
     if (insideZone.value) {
         return {
-            tagValue: 'Lokasi Sah',
-            tagSeverity: 'info',
-            boxClass: 'bg-blue-50 border-blue-200 text-blue-900',
-            iconClass: 'pi pi-check-circle text-[#005BAC]',
-            title: currentZoneName.value || 'Di Dalam Area KFPB',
-            description: 'Koordinat terverifikasi berada di dalam area presensi resmi Plant Banjaran.',
+            severity: 'success',
+            boxClass: 'bg-emerald-50 border-emerald-200 text-emerald-900',
+            iconClass: 'pi pi-check-circle text-emerald-700',
+            title: `Lokasi sah: ${currentZoneName.value || 'Area Pabrik KFPB'}`,
+            detail: 'Berada di dalam area presensi resmi Plant Banjaran.',
         };
     }
     return {
-        tagValue: 'Di Luar Area',
-        tagSeverity: 'danger',
+        severity: 'danger',
         boxClass: 'bg-rose-50 border-rose-200 text-rose-900',
         iconClass: 'pi pi-exclamation-triangle text-rose-700',
-        title: 'Posisi Anda Di Luar Area Pabrik',
-        description: 'Untuk mode WFO, pastikan Anda berada di salah satu dari 6 zona gedung Plant Banjaran.',
+        title: 'Di luar area pabrik KFPB',
+        detail: 'Mode WFO wajib berada di area resmi Plant Banjaran.',
     };
 });
 
+const isCheckInDisabled = computed(() =>
+    checkInForm.processing ||
+    isLocating.value ||
+    !gpsReady.value ||
+    !checkInForm.work_shift_id ||
+    (checkInForm.work_mode === 'WFO' && !insideZone.value)
+);
+
+const isCheckOutDisabled = computed(() =>
+    checkOutForm.processing ||
+    isLocating.value ||
+    !gpsReady.value ||
+    ((props.todayAttendance?.work_mode ?? 'WFO') === 'WFO' && !insideZone.value)
+);
+
+const checkInButtonLabel = computed(() => {
+    if (checkInForm.processing) return 'Menyimpan Presensi...';
+    if (isLocating.value) return 'Mendeteksi Lokasi...';
+    return 'Absen Masuk';
+});
+
+const checkOutButtonLabel = computed(() => {
+    if (checkOutForm.processing) return 'Menyimpan Presensi...';
+    if (isLocating.value) return 'Mendeteksi Lokasi...';
+    return 'Absen Pulang';
+});
+
+const activeShiftSchedule = computed(() => {
+    const att = props.todayAttendance;
+    if (!att) return null;
+
+    if (att.shift_check_out) {
+        return {
+            id: att.work_shift_id ?? null,
+            name: att.shift_name,
+            check_in: att.shift_check_in ?? null,
+            check_out: att.shift_check_out,
+            is_night: Boolean(att.shift_is_night),
+        };
+    }
+
+    if (att.work_shift_id) {
+        const byId = props.workShifts.find((s) => s.id === att.work_shift_id);
+        if (byId) return byId;
+    }
+
+    return props.workShifts.find((s) => s.name === att.shift_name) ?? null;
+});
+
+function parseHmToMinutes(timeStr) {
+    if (!timeStr || typeof timeStr !== 'string') return null;
+    const match = timeStr.trim().match(/^(\d{1,2}):(\d{2})/);
+    if (!match) return null;
+    const h = Number(match[1]);
+    const m = Number(match[2]);
+    if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+    return h * 60 + m;
+}
+
+function isEarlyLeaveAt(now = new Date()) {
+    if (attendanceStatus.value !== 'in') return false;
+
+    const shift = activeShiftSchedule.value;
+    if (!shift || !shift.check_out) return false;
+
+    const outMinutes = parseHmToMinutes(shift.check_out);
+    const inMinutes = parseHmToMinutes(shift.check_in);
+    if (outMinutes === null) return false;
+    if (inMinutes !== null && outMinutes === inMinutes) return false;
+
+    const nowAtMinute = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+        now.getHours(),
+        now.getMinutes(),
+        0,
+        0
+    );
+
+    let baseYear = now.getFullYear();
+    let baseMonth = now.getMonth();
+    let baseDay = now.getDate();
+
+    const dateMatch = typeof props.todayAttendance?.attendance_date === 'string'
+        ? props.todayAttendance.attendance_date.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+        : null;
+
+    if (dateMatch) {
+        baseYear = Number(dateMatch[1]);
+        baseMonth = Number(dateMatch[2]) - 1;
+        baseDay = Number(dateMatch[3]);
+    }
+
+    const crossesMidnight = Boolean(shift.is_night) || (inMinutes !== null && outMinutes < inMinutes);
+    let dayOffset = 0;
+
+    if (crossesMidnight) {
+        const actualInMinutes = parseHmToMinutes(props.todayAttendance?.check_in_time);
+        dayOffset = (actualInMinutes !== null && actualInMinutes < outMinutes) ? 0 : 1;
+    }
+
+    const scheduledCheckoutAtMinute = new Date(
+        baseYear,
+        baseMonth,
+        baseDay + dayOffset,
+        Math.floor(outMinutes / 60),
+        outMinutes % 60,
+        0,
+        0
+    );
+
+    return (scheduledCheckoutAtMinute.getTime() - nowAtMinute.getTime()) >= 60 * 1000;
+}
+
+function handleCheckOutClick() {
+    if (isCheckOutDisabled.value) return;
+
+    const now = new Date();
+    realtimeClock.value = [
+        now.getHours().toString().padStart(2, '0'),
+        now.getMinutes().toString().padStart(2, '0'),
+        now.getSeconds().toString().padStart(2, '0'),
+    ].join(':');
+
+    if (isEarlyLeaveAt(now)) {
+        showEarlyCheckoutDialog.value = true;
+        return;
+    }
+    submitCheckOut();
+}
+
+function confirmEarlyCheckOut() {
+    showEarlyCheckoutDialog.value = false;
+    submitCheckOut();
+}
+
+function handlePaginationClick() {
+    pendingHistoryNav = true;
+}
+
 // ===== Perhitungan Jarak Haversine (meter) =====
 function haversineDistance(lat1, lon1, lat2, lon2) {
-    const R    = 6371000;
+    const R = 6371000;
     const dLat = ((lat2 - lat1) * Math.PI) / 180;
     const dLon = ((lon2 - lon1) * Math.PI) / 180;
     const a =
@@ -294,9 +458,9 @@ function addBuildingPolygons(lmap) {
         },
     }).addTo(lmap);
 
-    props.geofenceZones.forEach(zone => {
+    props.geofenceZones.forEach((zone) => {
         if (zone.koordinat && zone.koordinat.length >= 3) {
-            const geoJsonCoords = zone.koordinat.map(pt => [pt[1], pt[0]]);
+            const geoJsonCoords = zone.koordinat.map((pt) => [pt[1], pt[0]]);
             geoGroup.addData({
                 type: 'Feature',
                 geometry: {
@@ -441,11 +605,23 @@ function initOrUpdateCheckOutMap(lat = null, lon = null) {
 }
 
 watch(mapCheckInContainer, (el) => {
-    if (el) nextTick(() => initOrUpdateCheckInMap());
+    if (el) {
+        nextTick(() => initOrUpdateCheckInMap());
+    } else if (leafletMapIn) {
+        leafletMapIn.remove();
+        leafletMapIn = null;
+        markerIn = null;
+    }
 });
 
 watch(mapCheckOutContainer, (el) => {
-    if (el) nextTick(() => initOrUpdateCheckOutMap());
+    if (el) {
+        nextTick(() => initOrUpdateCheckOutMap());
+    } else if (leafletMapOut) {
+        leafletMapOut.remove();
+        leafletMapOut = null;
+        markerOut = null;
+    }
 });
 
 // GPS Callbacks
@@ -453,16 +629,16 @@ function onGpsSuccess(position) {
     const lat = position.coords.latitude;
     const lon = position.coords.longitude;
 
-    gpsLat.value     = lat;
-    gpsLon.value     = lon;
-    gpsReady.value   = true;
-    gpsError.value   = '';
+    gpsLat.value = lat;
+    gpsLon.value = lon;
+    gpsReady.value = true;
+    gpsError.value = '';
     isLocating.value = false;
     insideZone.value = checkInsideZones(lat, lon);
 
-    checkInForm.latitude   = String(lat);
-    checkInForm.longitude  = String(lon);
-    checkOutForm.latitude  = String(lat);
+    checkInForm.latitude = String(lat);
+    checkInForm.longitude = String(lon);
+    checkOutForm.latitude = String(lat);
     checkOutForm.longitude = String(lon);
 
     nextTick(() => {
@@ -503,7 +679,7 @@ function startGeolocation(useLowAccuracy = false) {
     }
 
     isSimulated.value = false;
-    isLocating.value  = true;
+    isLocating.value = true;
     if (!useLowAccuracy) {
         gpsError.value = '';
     }
@@ -545,8 +721,8 @@ function startGeolocation(useLowAccuracy = false) {
 
 // Simulasi KFPB Plant Banjaran untuk dev di PC
 function useLocalSimulation() {
-    isLocating.value  = false;
-    gpsError.value    = '';
+    isLocating.value = false;
+    gpsError.value = '';
     isSimulated.value = true;
     const dummyPos = {
         coords: {
@@ -613,14 +789,14 @@ function executeCheckInSubmit(lat, lon) {
         checkInForm.processing = false;
         toast.add({
             severity: 'error',
-            summary:  'Di Luar Area KFPB!',
-            detail:   `Lokasi langsung Anda (${lat.toFixed(6)}, ${lon.toFixed(6)}) berada di luar area kantor KFPB. Absen Masuk ditolak.`,
-            life:     7000,
+            summary: 'Di Luar Area KFPB',
+            detail: `Lokasi Anda (${lat.toFixed(5)}, ${lon.toFixed(5)}) berada di luar area pabrik KFPB. Absen Masuk ditolak.`,
+            life: 7000,
         });
         return;
     }
 
-    checkInForm.latitude  = String(lat);
+    checkInForm.latitude = String(lat);
     checkInForm.longitude = String(lon);
 
     checkInForm.post('/absensi/masuk', {
@@ -685,14 +861,14 @@ function executeCheckOutSubmit(lat, lon) {
         checkOutForm.processing = false;
         toast.add({
             severity: 'error',
-            summary:  'Di Luar Area KFPB!',
-            detail:   `Lokasi langsung Anda (${lat.toFixed(6)}, ${lon.toFixed(6)}) berada di luar area kantor KFPB. Absen Pulang ditolak.`,
-            life:     7000,
+            summary: 'Di Luar Area KFPB',
+            detail: `Lokasi Anda (${lat.toFixed(5)}, ${lon.toFixed(5)}) berada di luar area pabrik KFPB. Absen Pulang ditolak.`,
+            life: 7000,
         });
         return;
     }
 
-    checkOutForm.latitude  = String(lat);
+    checkOutForm.latitude = String(lat);
     checkOutForm.longitude = String(lon);
 
     checkOutForm.post('/absensi/pulang', {
@@ -735,10 +911,24 @@ onMounted(() => {
     tick();
     clockInterval = setInterval(tick, 1000);
 
+    removeStartListener = router.on('start', () => {
+        if (pendingHistoryNav) {
+            isPaginatingHistory.value = true;
+        }
+    });
+    removeFinishListener = router.on('finish', () => {
+        pendingHistoryNav = false;
+        isPaginatingHistory.value = false;
+    });
+
     window.addEventListener('resize', handleResize);
 
     if (attendanceStatus.value !== 'complete') {
         startGeolocation();
+        nextTick(() => {
+            initOrUpdateCheckInMap();
+            initOrUpdateCheckOutMap();
+        });
     }
 });
 
@@ -747,8 +937,10 @@ onUnmounted(() => {
     if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     activeLeafletTimers.forEach((timerId) => clearInterval(timerId));
     activeLeafletTimers.clear();
+    if (typeof removeStartListener === 'function') removeStartListener();
+    if (typeof removeFinishListener === 'function') removeFinishListener();
     window.removeEventListener('resize', handleResize);
-    if (leafletMapIn)  { leafletMapIn.remove();  leafletMapIn  = null; }
+    if (leafletMapIn) { leafletMapIn.remove(); leafletMapIn = null; }
     if (leafletMapOut) { leafletMapOut.remove(); leafletMapOut = null; }
 });
 
@@ -757,116 +949,130 @@ const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currenc
 </script>
 
 <template>
-    <div class="space-y-6 max-w-7xl mx-auto py-1">
-        <Head title="Presensi Harian" />
+    <Head title="Presensi Harian" />
+
+    <div class="lg:max-w-7xl lg:mx-auto lg:px-6 lg:pt-1 lg:pb-6 lg:space-y-5">
         <Toast
             position="top-right"
             :breakpoints="{ '640px': { width: 'calc(100vw - 20px)', left: '10px', right: '10px', top: '10px' } }"
         />
 
-        <!-- ================= TOP HERO BANNER ================= -->
-        <div
-            v-if="attendanceStatus !== 'complete'"
-            class="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs"
+        <section
+            aria-label="Ringkasan Pegawai"
+            class="relative text-white px-4 sm:px-6 pt-2 pb-[76px] sm:pb-[88px] lg:text-slate-900 lg:px-0 lg:pt-0 lg:pb-0"
         >
-            <div class="space-y-2">
-                <h1 class="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-                    Halo, {{ greetingName }}
-                </h1>
-                <p class="text-xs sm:text-sm text-slate-600">
-                    Pastikan lokasi presensi Anda sudah sesuai sebelum melakukan absen.
-                </p>
-                <div class="flex flex-wrap items-center gap-2 pt-1">
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-mono text-xs font-semibold border border-slate-200">
-                        {{ employeeNip }}
-                    </span>
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-medium border border-slate-200">
-                        {{ formattedPosition }}
-                    </span>
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-md bg-blue-50 text-[#005BAC] text-xs font-medium border border-blue-200">
-                        {{ formattedDivision }}
-                    </span>
+            <div
+                aria-hidden="true"
+                class="mobile-navy-arch vt-mobile-navy lg:hidden absolute inset-x-0 -top-[61px] bottom-0 bg-[#0b1c34] pointer-events-none"
+            />
+
+            <div class="vt-mobile-hero-content relative z-10 flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+                <div class="space-y-1 min-w-0">
+                    <h1 class="text-xl sm:text-2xl font-bold text-white lg:text-slate-900 tracking-tight">
+                        Halo, {{ greetingName }}
+                    </h1>
+                    <p class="text-xs sm:text-sm text-blue-100 lg:text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span>{{ todayLabel }}</span>
+                        <span aria-hidden="true">&bull;</span>
+                        <span class="font-mono font-semibold text-white lg:text-slate-700">NIP {{ employeeNip }}</span>
+                        <span aria-hidden="true">&bull;</span>
+                        <span>{{ formattedPosition }}</span>
+                        <span aria-hidden="true">&bull;</span>
+                        <span class="text-blue-200 lg:text-[#005BAC] font-medium">{{ formattedDivision }}</span>
+                    </p>
+                </div>
+
+                <Link
+                    href="/absensi/laporan"
+                    class="inline-flex items-center justify-center gap-2 min-h-[44px] px-4 py-2 rounded-xl border border-[#6b8bb8] bg-[#162b4a] hover:bg-[#1e375e] text-white focus-visible:!outline-white lg:border-slate-300 lg:bg-white lg:hover:bg-slate-50 lg:text-slate-700 lg:focus-visible:!outline-[#005BAC] font-semibold text-xs sm:text-sm transition-colors motion-reduce:transition-none shrink-0 self-start sm:self-auto"
+                >
+                    <i class="pi pi-calendar text-xs" aria-hidden="true" />
+                    <span>Laporan Absensi</span>
+                </Link>
+            </div>
+        </section>
+
+        <div class="vt-mobile-body relative z-10 -mt-12 sm:-mt-14 px-4 sm:px-6 pb-6 space-y-5 lg:mt-0 lg:px-0 lg:pb-0">
+
+        <!-- ================= KARTU ULANG TAHUN KORPORAT ================= -->
+        <section
+            v-if="birthdayData.isBirthday"
+            aria-label="Ucapan Ulang Tahun"
+            :class="[
+                'rounded-2xl p-4 sm:p-5 text-white shadow-xs',
+                birthdayData.gender === 'Female' ? 'bg-rose-700' : 'bg-[#004280]'
+            ]"
+        >
+            <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3.5">
+                <div class="size-11 rounded-xl bg-white/10 flex items-center justify-center shrink-0 border border-white/20">
+                    <i class="pi pi-gift text-xl text-white" aria-hidden="true" />
+                </div>
+                <div class="space-y-0.5">
+                    <span class="text-xs font-bold text-amber-100 block">Ucapan Khusus</span>
+                    <h2 class="text-sm sm:text-base font-bold">Selamat Ulang Tahun, {{ birthdayData.employeeName }}!</h2>
+                    <p class="text-xs text-white/95 leading-relaxed">
+                        Manajemen dan keluarga besar PT Kimia Farma Plant Banjaran mendoakan kesehatan, kelancaran rezeki, dan kesuksesan bagi Anda.
+                    </p>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- ================= CTA BANNER: LAPOR TIDAK MASUK KERJA (CUTI / SAKIT) ================= -->
-        <div
+        <!-- ================= KARTU LAPOR TIDAK MASUK / IZIN (TERLIHAT JELAS SAAT MODE ABSEN MASUK) ================= -->
+        <section
             v-if="attendanceStatus === 'none'"
-            class="bg-[#005BAC] rounded-2xl p-4 sm:p-5 text-white shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
+            aria-label="Lapor Tidak Masuk Kerja"
+            class="bg-blue-50 border border-[#005BAC]/30 rounded-2xl px-4 sm:px-5 py-3.5 shadow-md lg:shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
         >
-            <div class="flex items-center gap-3.5">
-                <div class="size-11 sm:size-12 rounded-xl bg-white/10 flex items-center justify-center shrink-0 border border-white/20">
-                    <i class="pi pi-file-edit text-white text-lg" aria-hidden="true" />
+            <div class="flex items-center gap-3.5 min-w-0">
+                <div class="size-10 rounded-xl bg-[#005BAC] text-white flex items-center justify-center shrink-0">
+                    <i class="pi pi-file-edit text-base" aria-hidden="true" />
                 </div>
-                <div>
-                    <h2 class="text-sm sm:text-base font-bold tracking-tight text-white">Lapor Tidak Masuk Kerja</h2>
-                    <p class="text-xs text-blue-100">Pengajuan Cuti Tahunan • Izin Sakit • Dinas Luar • Dispensasi Kerja</p>
+                <div class="min-w-0">
+                    <h2 class="text-sm sm:text-base font-bold text-slate-900 tracking-tight">
+                        Lapor Tidak Masuk Kerja
+                    </h2>
+                    <p class="text-xs text-slate-700">
+                        Pengajuan sakit, cuti tahunan, dinas luar, atau dispensasi kerja.
+                    </p>
                 </div>
             </div>
             <Link
                 href="/izin/buat"
-                class="inline-flex items-center justify-center gap-2 min-h-11 px-4 py-2.5 rounded-xl bg-white text-[#005BAC] font-bold text-xs sm:text-sm hover:bg-slate-100 transition-colors shadow-sm w-full sm:w-auto shrink-0"
+                class="inline-flex items-center justify-center gap-2 min-h-[44px] px-4 py-2 rounded-xl bg-white hover:bg-[#005BAC] text-[#005BAC] hover:text-white border border-[#005BAC]/40 font-semibold text-xs sm:text-sm transition-colors shrink-0 w-full sm:w-auto"
             >
-                <span>Ajukan Permohonan</span>
+                <span>Ajukan Izin / Cuti</span>
                 <i class="pi pi-arrow-right text-xs" aria-hidden="true" />
             </Link>
-        </div>
-
-        <!-- ================= KARTU ULANG TAHUN KORPORAT (KHUSUS HARI ULTAH) ================= -->
-        <div
-            v-if="birthdayData.isBirthday"
-            :class="[
-                'relative rounded-2xl p-5 sm:p-6 text-white shadow-sm overflow-hidden',
-                birthdayData.gender === 'Female'
-                    ? 'bg-rose-700'
-                    : 'bg-[#005BAC] border border-blue-400/30'
-            ]"
-        >
-            <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4 relative z-10">
-                <div class="size-12 rounded-xl bg-white/10 flex items-center justify-center shrink-0 border border-white/20">
-                    <i class="pi pi-gift text-2xl text-white" aria-hidden="true" />
-                </div>
-                <div class="space-y-1">
-                    <span class="text-xs font-bold text-amber-100">Pemberitahuan Khusus</span>
-                    <h2 class="text-base sm:text-lg font-bold">Selamat Ulang Tahun, {{ birthdayData.employeeName }}!</h2>
-                    <p class="text-xs sm:text-sm text-white/95 leading-relaxed">
-                        Manajemen dan segenap keluarga besar PT Kimia Farma Plant Banjaran mengucapkan selamat ulang tahun. Semoga senantiasa diberikan kesehatan, kelancaran rezeki, serta kesuksesan dalam berkarya bersama perusahaan.
-                    </p>
-                </div>
-            </div>
-        </div>
+        </section>
 
         <!-- ================= KONDISI A: KEHADIRAN HARI INI TELAH LENGKAP ================= -->
-        <!-- Sesuai instruksi: hanya munculkan card status kehadiran hari ini saja -->
-        <div v-if="attendanceStatus === 'complete'" class="max-w-3xl mx-auto space-y-6">
-            <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-                <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-                    <div class="flex items-center gap-2">
-                        <i class="pi pi-check-circle text-[#005BAC]" aria-hidden="true" />
-                        <h1 class="font-bold text-slate-800 text-base tracking-tight">Status Kehadiran Hari Ini</h1>
+        <div v-if="attendanceStatus === 'complete'" class="max-w-3xl mx-auto">
+            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-md lg:shadow-sm overflow-hidden">
+                <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-2.5">
+                        <div class="size-9 rounded-xl bg-blue-50 text-[#005BAC] border border-blue-100 flex items-center justify-center shrink-0">
+                            <i class="pi pi-check-circle text-base" aria-hidden="true" />
+                        </div>
+                        <h2 class="font-bold text-slate-900 text-base tracking-tight">Status Kehadiran Hari Ini</h2>
                     </div>
-                    <Tag value="Kehadiran Selesai" severity="info" class="!text-[11px] !font-bold" />
+                    <Tag value="Selesai" severity="success" class="!text-xs !font-bold" />
                 </div>
 
-                <div class="p-6 space-y-5">
-                    <!-- Pesan Narasi Lengkap Sesuai Permintaan Pengguna -->
-                    <div class="p-4 sm:p-5 rounded-xl bg-blue-50 border border-blue-200 space-y-2">
-                        <div class="font-bold text-[#005BAC] text-sm sm:text-base flex items-center gap-2">
-                            <i class="pi pi-verified text-[#005BAC] text-lg" aria-hidden="true" />
-                            <span>Kehadiran Hari Ini Telah Selesai</span>
+                <div class="p-5 sm:p-6 space-y-5">
+                    <div class="p-4 rounded-xl bg-emerald-50 border border-emerald-200 space-y-1">
+                        <div class="font-bold text-emerald-900 text-sm flex items-center gap-2">
+                            <i class="pi pi-verified text-emerald-700 text-base" aria-hidden="true" />
+                            <span>Presensi Hari Ini Lengkap</span>
                         </div>
-                        <p class="text-xs sm:text-sm text-blue-900 leading-relaxed">
-                            Halo <b>{{ greetingName }}</b>, Anda telah menyelesaikan rangkaian presensi masuk (<b>{{ fmt(todayAttendance?.check_in_time) }}</b>) dan presensi pulang (<b>{{ fmt(todayAttendance?.check_out_time) }}</b>). Terima kasih atas dedikasi kerja Anda hari ini.
+                        <p class="text-xs sm:text-sm text-emerald-900 leading-relaxed">
+                            Masuk pukul <b>{{ fmt(todayAttendance?.check_in_time) }} WIB</b> dan pulang pukul <b>{{ fmt(todayAttendance?.check_out_time) }} WIB</b>.
                         </p>
                     </div>
 
-                    <!-- Data Komparasi eSDM & Biometrik Wajah -->
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                        <!-- eSDM Aplikasi -->
                         <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
                             <div class="text-xs font-semibold text-slate-700 flex items-center justify-between">
-                                <span>Presensi Aplikasi eSDM</span>
+                                <span>Aplikasi eSDM</span>
                                 <span class="text-[11px] text-[#005BAC] font-semibold font-mono">Web/GPS</span>
                             </div>
                             <div class="grid grid-cols-2 gap-2 text-xs">
@@ -881,10 +1087,9 @@ const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currenc
                             </div>
                         </div>
 
-                        <!-- Absen Wajah (Face Biometric) -->
                         <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
                             <div class="text-xs font-semibold text-slate-700 flex items-center justify-between">
-                                <span>Absensi Wajah (FaceID)</span>
+                                <span>Mesin Wajah (FaceID)</span>
                                 <span class="text-[11px] text-[#005BAC] font-semibold font-mono">Mesin Plant</span>
                             </div>
                             <div class="grid grid-cols-2 gap-2 text-xs">
@@ -901,140 +1106,172 @@ const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currenc
                     </div>
 
                     <p class="text-xs text-slate-600 text-center">
-                        Sinkronisasi data mesin absensi wajah terhubung otomatis (±1 jam setelah proses pemindaian di lokasi).
+                        Sinkronisasi FaceID berkala (±1 jam).
                     </p>
+
+                    <div class="pt-1 flex flex-wrap items-center justify-center gap-3">
+                        <Link
+                            href="/absensi/laporan"
+                            class="inline-flex items-center justify-center gap-2 min-h-[44px] px-4 py-2 rounded-xl bg-[#005BAC] hover:bg-[#004280] text-white font-semibold text-xs sm:text-sm transition-colors"
+                        >
+                            <i class="pi pi-calendar text-xs" aria-hidden="true" />
+                            <span>Lihat Laporan Absensi</span>
+                        </Link>
+                        <Link
+                            href="/lembur/ajukan"
+                            class="inline-flex items-center justify-center gap-2 min-h-[44px] px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs sm:text-sm transition-colors"
+                        >
+                            <i class="pi pi-clock text-xs" aria-hidden="true" />
+                            <span>Pengajuan Lembur (SPL)</span>
+                        </Link>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- ================= KONDISI B: BELUM LENGKAP (BELUM MASUK / SEDANG IN / IZIN) ================= -->
-        <div v-else class="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+        <!-- ================= KONDISI B: BELUM MASUK / SEDANG MASUK / IZIN ================= -->
+        <div v-else class="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
 
-            <!-- ============================================================== -->
-            <!-- KOLOM KIRI (7 Kolom): Status, Form Presensi, & Riwayat Pegawai -->
-            <!-- ============================================================== -->
-            <div class="xl:col-span-7 min-w-0 space-y-6">
+            <!-- ================= KOLOM KIRI (7 Kolom): Tugas Utama & Riwayat ================= -->
+            <div class="xl:col-span-7 min-w-0 space-y-5">
 
-                <!-- 1. FORMULIR ABSEN MASUK (KONDISIONAL: BELUM ABSEN — PRIORITAS UTAMA) -->
-                <div
+                <!-- 1A. FORM PRESENSI MASUK -->
+                <section
                     v-if="attendanceStatus === 'none'"
-                    class="bg-white rounded-2xl border border-slate-200 shadow-md overflow-hidden"
+                    aria-label="Formulir Presensi Masuk"
+                    class="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden"
                 >
-                    <div class="px-5 py-4 bg-[#005BAC] text-white flex items-center justify-between">
-                        <div class="flex items-center gap-2.5">
-                            <i class="pi pi-sign-in text-lg" aria-hidden="true" />
-                            <div>
-                                <h2 class="font-bold text-sm sm:text-base tracking-tight text-white">Form Absen Masuk</h2>
-                                <p class="text-xs text-blue-100">{{ todayLabel }}</p>
+                    <div class="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                        <div class="flex items-center gap-3 min-w-0">
+                            <div class="size-9 rounded-xl bg-blue-50 text-[#005BAC] border border-blue-100 flex items-center justify-center shrink-0">
+                                <i class="pi pi-sign-in text-base" aria-hidden="true" />
                             </div>
+                            <div class="min-w-0">
+                                <h2 class="font-bold text-base text-slate-900 tracking-tight">Presensi Masuk</h2>
+                                <p class="text-xs text-slate-600 mt-0.5 truncate">
+                                    {{ selectedShift ? `${selectedShift.name} (${selectedShift.check_in} - ${selectedShift.check_out})` : 'Pilih shift kerja Anda' }}
+                                </p>
+                            </div>
+                        </div>
+                        <div class="flex items-baseline gap-1.5 shrink-0">
+                            <span class="font-mono text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight tabular-nums select-none">
+                                {{ realtimeClock }}
+                            </span>
+                            <span class="text-xs font-bold text-slate-600">WIB</span>
                         </div>
                     </div>
 
-                    <div class="p-5 sm:p-6 space-y-4">
-                        <!-- Waktu Realtime Masuk -->
-                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:p-5 rounded-xl bg-slate-50 border border-slate-200">
-                            <div class="flex items-center gap-3 min-w-0">
-                                <div class="size-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-xs text-[#005BAC]">
-                                    <i class="pi pi-clock text-lg" aria-hidden="true" />
-                                </div>
-                                <div class="min-w-0">
-                                    <span class="text-xs font-semibold text-slate-700 block">Waktu Saat Ini</span>
-                                    <p class="text-xs text-slate-600 mt-0.5">Waktu presensi masuk tercatat otomatis saat Anda menekan tombol absen</p>
-                                </div>
-                            </div>
-                            <div class="flex items-baseline gap-1.5 font-sans sm:text-right shrink-0">
-                                <span class="text-3xl sm:text-4xl font-extrabold text-slate-800 tracking-tight font-sans select-none">
-                                    {{ realtimeClock }}
-                                </span>
-                                <span class="text-xs sm:text-sm font-bold text-slate-600 font-sans">WIB</span>
-                            </div>
-                        </div>
-
-                        <!-- Input NPP -->
-                        <div>
-                            <label for="attendance-nip" class="block text-xs font-semibold text-slate-700 mb-1.5">NPP / NIP</label>
-                            <InputText id="attendance-nip" name="nip" :value="employeeNip" readonly class="w-full !text-sm !bg-slate-50 font-mono font-semibold" />
-                        </div>
-
-                        <!-- Pilih Shift -->
-                        <div>
-                            <label id="attendance-shift-label" for="attendance-shift" class="block text-xs font-semibold text-slate-700 mb-1.5">Pilih Shift Kerja</label>
-                            <Select
-                                label-id="attendance-shift"
-                                aria-labelledby="attendance-shift-label"
-                                v-model="checkInForm.work_shift_id"
-                                :options="workShifts"
-                                option-label="name"
-                                option-value="id"
-                                placeholder="Pilih Shift"
-                                class="w-full !text-sm"
-                            >
-                                <template #option="{ option }">
-                                    <div class="flex items-center justify-between w-full">
-                                        <span class="font-medium text-xs sm:text-sm">{{ option.name }}</span>
-                                        <span class="text-xs text-slate-600 font-mono ml-3">{{ option.check_in }} - {{ option.check_out }}</span>
-                                    </div>
-                                </template>
-                                <template #value="{ value }">
-                                    <span v-if="selectedShift" class="text-xs sm:text-sm">
-                                        {{ selectedShift.name }}
-                                        <span class="text-slate-600 font-mono ml-1 text-xs">
-                                             ({{ selectedShift.check_in }} - {{ selectedShift.check_out }})
+                    <div class="p-5 space-y-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            <div>
+                                <label id="attendance-shift-label" for="attendance-shift" class="block text-xs font-semibold text-slate-700 mb-1.5">
+                                    Shift Kerja
+                                </label>
+                                <Select
+                                    label-id="attendance-shift"
+                                    aria-labelledby="attendance-shift-label"
+                                    v-model="checkInForm.work_shift_id"
+                                    :options="workShifts"
+                                    option-label="name"
+                                    option-value="id"
+                                    placeholder="Pilih Shift"
+                                    class="w-full !text-sm"
+                                >
+                                    <template #option="{ option }">
+                                        <div class="flex items-center justify-between w-full">
+                                            <span class="font-medium text-xs sm:text-sm">{{ option.name }}</span>
+                                            <span class="text-xs text-slate-600 font-mono ml-3">{{ option.check_in }} - {{ option.check_out }}</span>
+                                        </div>
+                                    </template>
+                                    <template #value="{ value }">
+                                        <span v-if="selectedShift" class="text-xs sm:text-sm">
+                                            {{ selectedShift.name }}
+                                            <span class="text-slate-600 font-mono ml-1 text-xs">
+                                                ({{ selectedShift.check_in }} - {{ selectedShift.check_out }})
+                                            </span>
                                         </span>
-                                    </span>
-                                    <span v-else class="text-slate-600 text-xs sm:text-sm">Pilih Shift</span>
-                                </template>
-                            </Select>
-                            <p class="text-xs text-[#005BAC] mt-1.5 font-medium flex items-center gap-1.5">
-                                <i class="pi pi-info-circle text-xs shrink-0" aria-hidden="true" />
-                                <span><b>Tips:</b> Untuk lembur di hari Sabtu/Minggu/Libur, silakan pilih shift lembur (libur).</span>
-                            </p>
+                                        <span v-else class="text-slate-600 text-xs sm:text-sm">Pilih Shift</span>
+                                    </template>
+                                </Select>
+                                <p class="text-xs text-slate-600 mt-1">
+                                    Hari libur/lembur? Pilih shift lembur.
+                                </p>
+                            </div>
+
+                            <div>
+                                <label id="attendance-work-mode-label" for="attendance-work-mode" class="block text-xs font-semibold text-slate-700 mb-1.5">
+                                    Mode Kerja
+                                </label>
+                                <Select
+                                    label-id="attendance-work-mode"
+                                    aria-labelledby="attendance-work-mode-label"
+                                    v-model="checkInForm.work_mode"
+                                    :options="workModeOptions"
+                                    option-label="label"
+                                    option-value="value"
+                                    class="w-full !text-sm"
+                                />
+                                <p v-if="checkInForm.work_mode !== 'WFO'" class="text-xs text-[#005BAC] mt-1 font-medium">
+                                    Bebas area pabrik (GPS tetap dicatat).
+                                </p>
+                            </div>
                         </div>
 
-                        <!-- Mode Kerja -->
-                        <div>
-                            <label id="attendance-work-mode-label" for="attendance-work-mode" class="block text-xs font-semibold text-slate-700 mb-1.5">Mode Kerja (Work From)</label>
-                            <Select
-                                label-id="attendance-work-mode"
-                                aria-labelledby="attendance-work-mode-label"
-                                v-model="checkInForm.work_mode"
-                                :options="workModeOptions"
-                                option-label="label"
-                                option-value="value"
-                                class="w-full !text-sm"
-                            >
-                            </Select>
-                        </div>
-
-                        <!-- Peta Geofence Form Masuk -->
-                        <div class="space-y-2">
-                            <div class="flex items-center justify-between flex-wrap gap-2">
-                                <span class="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                                    <i class="pi pi-map-marker text-[#005BAC]" aria-hidden="true" />
-                                    <span>Peta Lokasi &amp; Geofence KFPB</span>
-                                </span>
-                                <div class="flex items-center gap-2 flex-wrap justify-end">
-                                    <span v-if="insideZone && currentZoneName" class="text-xs text-[#005BAC] font-bold flex items-center gap-1">
-                                        <i class="pi pi-check text-xs" aria-hidden="true" />
-                                        <span>Zona: {{ currentZoneName }}</span>
-                                    </span>
-                                    <span v-else-if="gpsReady && !insideZone && !isLocating" class="text-xs text-rose-700 font-bold flex items-center gap-1">
-                                        <i class="pi pi-exclamation-circle text-xs" aria-hidden="true" />
-                                        <span>Di Luar Area KFPB</span>
-                                    </span>
-                                    <Button
-                                        icon="pi pi-crosshairs"
-                                        label="Pusatkan"
-                                        size="small"
-                                        text
-                                        class="!text-xs !min-h-[44px] !min-w-[44px] !px-3 !text-[#005BAC] cursor-pointer"
-                                        @click="centerUserLocation"
-                                    />
+                        <!-- Status Bar Lokasi Terpadu -->
+                        <div
+                            role="status"
+                            aria-live="polite"
+                            :class="['p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-colors', effectiveLocationState.boxClass]"
+                        >
+                            <div class="flex items-start gap-2.5 min-w-0">
+                                <i :class="['text-base shrink-0 mt-0.5', effectiveLocationState.iconClass]" aria-hidden="true" />
+                                <div class="min-w-0 text-xs">
+                                    <p class="font-bold leading-snug">{{ effectiveLocationState.title }}</p>
+                                    <p class="text-xs mt-0.5 leading-snug">{{ effectiveLocationState.detail }}</p>
                                 </div>
                             </div>
+
+                            <div class="flex items-center gap-2 shrink-0 flex-wrap">
+                                <Button
+                                    v-if="!isLocating && (!gpsReady || (requiresGeofence && !insideZone))"
+                                    type="button"
+                                    label="Ulangi GPS"
+                                    icon="pi pi-refresh"
+                                    size="small"
+                                    severity="secondary"
+                                    outlined
+                                    class="!text-xs !min-h-[44px] !px-3 !rounded-lg !text-slate-700 !border-slate-300 !bg-white hover:!bg-slate-50"
+                                    @click="startGeolocation(false)"
+                                />
+                                <Button
+                                    v-if="isDevMode && !isLocating && (!gpsReady || (requiresGeofence && !insideZone))"
+                                    type="button"
+                                    label="Simulasi KFPB"
+                                    icon="pi pi-map-marker"
+                                    size="small"
+                                    outlined
+                                    class="!text-xs !min-h-[44px] !px-3 !rounded-lg !text-[#005BAC] !border-[#005BAC]/50 !bg-white hover:!bg-blue-50"
+                                    @click="useLocalSimulation"
+                                />
+                                <Button
+                                    v-if="gpsReady && (!requiresGeofence || insideZone)"
+                                    type="button"
+                                    icon="pi pi-crosshairs"
+                                    label="Pusatkan"
+                                    size="small"
+                                    severity="secondary"
+                                    outlined
+                                    class="!text-xs !min-h-[44px] !px-3 !rounded-lg !text-slate-700 !border-slate-300 !bg-white hover:!bg-slate-50"
+                                    @click="centerUserLocation"
+                                />
+                            </div>
+                        </div>
+
+                        <!-- Peta Lokasi -->
+                        <div class="space-y-1.5">
                             <div
-                                class="relative z-0 isolate w-full rounded-xl border border-slate-200 overflow-hidden shadow-xs"
-                                style="height: 260px; background: #e2e8f0;"
+                                class="relative z-0 isolate w-full rounded-xl border border-slate-200 overflow-hidden shadow-2xs"
+                                style="height: 240px; background: #e2e8f0;"
                             >
                                 <div ref="mapCheckInContainer" class="w-full h-full" />
                                 <div
@@ -1047,187 +1284,87 @@ const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currenc
                                 </div>
                             </div>
 
-                            <!-- GPS Status & Map Legend -->
-                            <div class="flex items-center justify-between text-xs text-slate-600 pt-0.5 flex-wrap gap-2">
+                            <div class="flex items-center justify-between text-xs text-slate-600 flex-wrap gap-2">
                                 <div class="flex items-center gap-1.5">
                                     <span class="size-2.5 rounded-full bg-[#005BAC]" aria-hidden="true" />
-                                    <span>Poligon Biru = Zona Gedung KFPB</span>
+                                    <span>Area Biru = Wilayah Pabrik KFPB</span>
                                 </div>
                                 <div v-if="gpsReady && gpsLat" class="font-mono text-slate-700 flex items-center gap-1">
                                     <i class="pi pi-map-marker text-[#005BAC]" aria-hidden="true" />
-                                    <span>{{ gpsLat?.toFixed(6) }}, {{ gpsLon?.toFixed(6) }}</span>
-                                    <span v-if="isLocating" class="text-slate-600 text-xs ml-1">
-                                        <i class="pi pi-spin pi-spinner" aria-hidden="true" />
-                                    </span>
-                                </div>
-                            </div>
-                            <div v-if="gpsError || isLocating" class="mt-2 p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-2.5">
-                                <div class="flex items-center gap-2">
-                                    <i :class="isLocating ? 'pi pi-spin pi-spinner text-amber-700' : 'pi pi-exclamation-triangle text-amber-700'" aria-hidden="true" />
-                                    <span class="font-medium">{{ isLocating ? 'Sedang mendeteksi sinyal GPS perangkat...' : gpsError }}</span>
-                                </div>
-                                <div v-if="!isLocating" class="flex items-center gap-2.5 pt-2 border-t border-amber-200 flex-wrap">
-                                    <Button
-                                        label="Coba Ulangi GPS"
-                                        icon="pi pi-refresh"
-                                        size="small"
-                                        severity="secondary"
-                                        outlined
-                                        class="!text-xs !min-h-[44px] !px-3.5 !rounded-lg !text-slate-700 !border-slate-300 !bg-white hover:!bg-slate-50"
-                                        @click="startGeolocation(false)"
-                                    />
-                                    <Button
-                                        v-if="isDevMode || gpsError.includes('Timeout') || gpsError.includes('tidak tersedia')"
-                                        label="Gunakan Titik KFPB (Mode Dev)"
-                                        icon="pi pi-map-marker"
-                                        size="small"
-                                        outlined
-                                        class="!text-xs !min-h-[44px] !px-3.5 !rounded-lg !text-[#005BAC] !border-[#005BAC]/50 !bg-white hover:!bg-blue-50"
-                                        @click="useLocalSimulation"
-                                    />
+                                    <span>{{ gpsLat?.toFixed(5) }}, {{ gpsLon?.toFixed(5) }}</span>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Tombol Submit Absen Masuk -->
+                        <!-- CTA Utama Absen Masuk -->
                         <div>
                             <Button
-                                :label="isLocating ? 'Mengecek Lokasi GPS Langsung...' : 'Klik Untuk Absen Masuk'"
+                                type="button"
+                                :label="checkInButtonLabel"
                                 icon="pi pi-sign-in"
                                 :loading="checkInForm.processing || isLocating"
-                                :disabled="checkInForm.processing || isLocating || !gpsReady"
-                                class="w-full !min-h-[48px] !bg-[#005BAC] !border-[#005BAC] hover:!bg-[#004b8e] !font-bold !py-3.5 shadow-md text-sm sm:text-base !rounded-xl"
+                                :disabled="isCheckInDisabled"
+                                class="w-full !min-h-[48px] !bg-[#005BAC] !border-[#005BAC] hover:!bg-[#004280] !font-bold !py-3 shadow-sm text-sm sm:text-base !rounded-xl"
                                 @click="submitCheckIn"
                             />
-                            <p v-if="!gpsReady" class="text-xs text-slate-600 mt-2 flex items-center gap-1.5">
-                                <i class="pi pi-info-circle text-[#005BAC] shrink-0" aria-hidden="true" />
-                                <span>
-                                    {{
-                                        isLocating
-                                            ? 'Menunggu koordinat GPS perangkat sebelum absen dapat dikirim.'
-                                            : (isDevMode
-                                                ? 'GPS belum aktif. Klik "Coba Ulangi GPS" atau "Gunakan Titik KFPB (Mode Dev)" di atas.'
-                                                : 'GPS belum aktif. Pastikan izin lokasi aktif lalu klik "Coba Ulangi GPS".')
-                                    }}
-                                </span>
+                            <p v-if="!checkInForm.work_shift_id" class="text-xs text-slate-600 mt-1.5">
+                                Pilih shift kerja terlebih dahulu.
                             </p>
                         </div>
                     </div>
-                </div>
+                </section>
 
-                <!-- 2. KOTAK STATUS KEHADIRAN HARI INI (ESDM & BIOMETRIK WAJAH) -->
-                <!-- Saat sudah absen masuk ('in') atau izin ('leave'), card status ini tampil teratas sebelum form pulang -->
-                <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-                    <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-                        <div class="flex items-center gap-2">
-                            <i class="pi pi-info-circle text-[#005BAC]" aria-hidden="true" />
-                            <h2 class="font-bold text-slate-800 text-sm tracking-tight">Status Kehadiran Hari Ini</h2>
-                        </div>
-                        <Tag
-                            v-if="attendanceStatus === 'leave'"
-                            value="Lapor Izin / Cuti"
-                            severity="warn"
-                            class="!text-[11px] !font-bold"
-                        />
-                        <Tag
-                            v-else-if="attendanceStatus === 'in'"
-                            value="Sudah Absen Masuk"
-                            severity="info"
-                            class="!text-[11px] !font-bold"
-                        />
-                        <Tag
-                            v-else
-                            value="Belum Absen Masuk"
-                            severity="danger"
-                            class="!text-[11px] !font-bold"
-                        />
-                    </div>
-
-                    <div class="p-5 space-y-4">
-                        <!-- Kasus A: Sedang Izin -->
-                        <div v-if="attendanceStatus === 'leave'" class="p-4 rounded-xl bg-blue-50 border border-blue-200 text-sm space-y-2">
-                            <div class="font-bold text-blue-900 flex items-center gap-2">
-                                <i class="pi pi-check-circle text-[#005BAC]" aria-hidden="true" />
-                                <span>Permohonan {{ activeLeave.name }} Tercatat</span>
-                            </div>
-                            <p class="text-xs text-blue-800 leading-relaxed">
-                                Keterangan: <b>{{ activeLeave.reason }}</b>. Anda tidak diwajibkan melakukan absen masuk dan pulang untuk hari ini.
-                            </p>
-                        </div>
-
-                        <!-- Data Komparasi eSDM & Biometrik Wajah -->
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                            <!-- eSDM Aplikasi -->
-                            <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                                <div class="text-xs font-semibold text-slate-700 flex items-center justify-between">
-                                    <span>Presensi Aplikasi eSDM</span>
-                                    <span class="text-[11px] text-[#005BAC] font-semibold font-mono">Web/GPS</span>
+                <!-- 1B. ALUR SUDAH ABSEN MASUK: KETERLAMBATAN HARI INI & FORM PRESENSI PULANG -->
+                <template v-else-if="attendanceStatus === 'in'">
+                    <section
+                        aria-label="Keterlambatan Hari Ini"
+                        class="bg-white rounded-2xl border border-slate-200/90 shadow-md lg:shadow-xs overflow-hidden"
+                    >
+                        <div class="px-5 py-3.5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div class="flex items-center gap-3 min-w-0">
+                                <div class="size-9 rounded-xl bg-orange-50 text-[#c2410c] border border-orange-200/70 flex items-center justify-center shrink-0">
+                                    <i class="pi pi-clock text-base" aria-hidden="true" />
                                 </div>
-                                <div class="grid grid-cols-2 gap-2 text-xs">
-                                    <div>
-                                        <span class="text-slate-600 block">Jam Masuk</span>
-                                        <span class="font-bold text-slate-800 font-mono text-sm">{{ fmt(todayAttendance?.check_in_time) }}</span>
-                                    </div>
-                                    <div>
-                                        <span class="text-slate-600 block">Jam Pulang</span>
-                                        <span class="font-bold text-slate-800 font-mono text-sm">{{ fmt(todayAttendance?.check_out_time) }}</span>
-                                    </div>
+                                <div class="min-w-0">
+                                    <h2 class="font-bold text-slate-900 text-sm tracking-tight">Keterlambatan Hari Ini</h2>
+                                    <p class="text-xs text-slate-600 mt-0.5">5 presensi terlambat terbaru hari ini</p>
                                 </div>
                             </div>
 
-                            <!-- Absen Wajah (Face Biometric) -->
-                            <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                                <div class="text-xs font-semibold text-slate-700 flex items-center justify-between">
-                                    <span>Absensi Wajah (FaceID)</span>
-                                    <span class="text-[11px] text-[#005BAC] font-semibold font-mono">Mesin Plant</span>
-                                </div>
-                                <div class="grid grid-cols-2 gap-2 text-xs">
-                                    <div>
-                                        <span class="text-slate-600 block">Jam Masuk</span>
-                                        <span class="font-bold text-slate-800 font-mono text-sm">{{ faceCheckIn }}</span>
-                                    </div>
-                                    <div>
-                                        <span class="text-slate-600 block">Jam Pulang</span>
-                                        <span class="font-bold text-slate-800 font-mono text-sm">{{ faceCheckOut }}</span>
-                                    </div>
-                                </div>
+                            <div class="grid grid-cols-2 p-1 bg-slate-100 rounded-xl gap-1 shrink-0 w-full sm:w-auto">
+                                <button
+                                    type="button"
+                                    :aria-pressed="String(lateTab === 'esdm')"
+                                    class="min-h-[44px] px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                                    :class="lateTab === 'esdm'
+                                        ? 'bg-white text-slate-900 shadow-2xs'
+                                        : 'text-slate-700 hover:text-slate-900'"
+                                    @click="lateTab = 'esdm'"
+                                >
+                                    Aplikasi eSDM ({{ topLateToday.length }})
+                                </button>
+                                <button
+                                    type="button"
+                                    :aria-pressed="String(lateTab === 'face')"
+                                    class="min-h-[44px] px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                                    :class="lateTab === 'face'
+                                        ? 'bg-white text-slate-900 shadow-2xs'
+                                        : 'text-slate-700 hover:text-slate-900'"
+                                    @click="lateTab = 'face'"
+                                >
+                                    Mesin Wajah ({{ topLateBiometric.length }})
+                                </button>
                             </div>
                         </div>
 
-                        <p class="text-xs text-slate-600 text-center">
-                            Sinkronisasi data mesin wajah terhubung otomatis berkala (±1 jam setelah proses pemindaian di lokasi).
-                        </p>
-                    </div>
-                </div>
-
-                <!-- 3. ALUR KHUSUS SUDAH ABSEN MASUK (REKAP KETERLAMBATAN & FORM PULANG) -->
-                <template v-if="attendanceStatus === 'in'">
-                    <!-- 3A. TABEL TERLAMBAT DATANG HARI INI (ESDM) -->
-                    <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-                        <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                            <div>
-                                <h2 class="font-bold text-slate-800 text-sm tracking-tight flex items-center gap-2">
-                                    <i class="pi pi-clock text-[#c2410c]" aria-hidden="true" />
-                                    <span>Terlambat Datang Hari Ini (eSDM)</span>
-                                </h2>
-                                <p class="text-xs text-slate-600 mt-0.5">List 5 keterlambatan presensi masuk pegawai hari ini</p>
-                            </div>
-                            <Link
-                                href="/charts"
-                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-xs font-semibold hover:bg-slate-200 transition-colors shrink-0"
-                            >
-                                <i class="pi pi-file-pdf text-rose-600" aria-hidden="true" />
-                                <span>Download Laporan Terlambat (PDF)</span>
-                            </Link>
-                        </div>
-
-                        <div class="overflow-x-auto">
+                        <div v-if="lateTab === 'esdm'" class="overflow-x-auto">
                             <table class="w-full text-left text-xs text-slate-700 border-collapse">
+                                <caption class="sr-only">Daftar keterlambatan presensi aplikasi eSDM hari ini</caption>
                                 <thead>
                                     <tr class="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200 text-xs">
-                                        <th class="py-2.5 px-4">Nama Pegawai &amp; Unit</th>
-                                        <th class="py-2.5 px-4">Jam Masuk</th>
-                                        <th class="py-2.5 px-4">Shift</th>
+                                        <th scope="col" class="py-2.5 px-4">Nama &amp; Unit</th>
+                                        <th scope="col" class="py-2.5 px-4">Masuk</th>
+                                        <th scope="col" class="py-2.5 px-4">Shift</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100">
@@ -1241,326 +1378,308 @@ const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currenc
                                     </tr>
                                     <tr v-if="topLateToday.length === 0">
                                         <td colspan="3" class="py-5 px-4 text-center text-slate-600">
-                                            Tidak ada data keterlambatan hari ini.
+                                            Tidak ada data keterlambatan eSDM hari ini.
                                         </td>
                                     </tr>
                                 </tbody>
                             </table>
                         </div>
-                    </div>
 
-                    <!-- 3B. CARD KETERLAMBATAN ABSEN WAJAH (BIOMETRIK) — COLLAPSIBLE -->
-                    <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-                        <button
-                            type="button"
-                            :aria-expanded="String(showLateBiometric)"
-                            aria-controls="late-biometric-panel"
-                            class="w-full min-h-11 p-4 sm:p-5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors"
-                            @click="showLateBiometric = !showLateBiometric"
+                        <div v-else class="overflow-x-auto">
+                            <table class="w-full text-left text-xs text-slate-700 border-collapse">
+                                <caption class="sr-only">Daftar keterlambatan mesin wajah hari ini</caption>
+                                <thead>
+                                    <tr class="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200 text-xs">
+                                        <th scope="col" class="py-2.5 px-4">Nama &amp; Unit</th>
+                                        <th scope="col" class="py-2.5 px-4">Masuk</th>
+                                        <th scope="col" class="py-2.5 px-4">Metode</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    <tr v-for="(lateBio, idx) in topLateBiometric" :key="idx" class="hover:bg-slate-50/50">
+                                        <td class="py-2.5 px-4">
+                                            <div class="font-bold text-slate-800">{{ lateBio.name }}</div>
+                                            <div class="text-xs text-slate-600">{{ lateBio.division }}</div>
+                                        </td>
+                                        <td class="py-2.5 px-4 font-mono font-bold text-rose-700 whitespace-nowrap">{{ lateBio.time }}</td>
+                                        <td class="py-2.5 px-4 text-slate-700 font-medium">{{ lateBio.shift }}</td>
+                                    </tr>
+                                    <tr v-if="topLateBiometric.length === 0">
+                                        <td colspan="3" class="py-5 px-4 text-center text-slate-600">
+                                            Tidak ada data keterlambatan mesin wajah hari ini.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section
+                        aria-label="Formulir Presensi Pulang"
+                        class="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden"
+                    >
+                        <div class="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                            <div class="flex items-center gap-3 min-w-0">
+                                <div class="size-9 rounded-xl bg-blue-50 text-[#005BAC] border border-blue-100 flex items-center justify-center shrink-0">
+                                    <i class="pi pi-sign-out text-base" aria-hidden="true" />
+                                </div>
+                                <div class="min-w-0">
+                                    <h2 class="font-bold text-base text-slate-900 tracking-tight">Presensi Pulang</h2>
+                                    <p class="text-xs text-slate-600 mt-0.5 truncate">
+                                        Masuk {{ fmt(todayAttendance?.check_in_time) }} WIB &bull; {{ todayAttendance?.shift_name }} &bull; {{ todayAttendance?.work_mode }}
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="flex items-baseline gap-1.5 shrink-0">
+                                <span class="font-mono text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight tabular-nums select-none">
+                                    {{ realtimeClock }}
+                                </span>
+                                <span class="text-xs font-bold text-slate-600">WIB</span>
+                            </div>
+                        </div>
+
+                    <div class="p-5 space-y-4">
+                        <!-- Status Bar Lokasi Terpadu -->
+                        <div
+                            role="status"
+                            aria-live="polite"
+                            :class="['p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-colors', effectiveLocationState.boxClass]"
                         >
-                            <div class="flex items-center gap-2.5">
-                                <i class="pi pi-user-edit text-[#005BAC]" aria-hidden="true" />
-                                <div>
-                                    <h2 class="font-bold text-slate-800 text-sm tracking-tight">Tampilkan Data Terlambat Hari Ini (Absen Wajah)</h2>
-                                    <p class="text-xs text-slate-600 mt-0.5">Sensor biometrik wajah mesin Plant</p>
-                                </div>
-                            </div>
-                            <i :class="['pi text-xs text-slate-600 transition-transform', showLateBiometric ? 'pi-chevron-up' : 'pi-chevron-down']" aria-hidden="true" />
-                        </button>
-
-                        <div id="late-biometric-panel" v-show="showLateBiometric" class="p-4 sm:p-5 pt-0 border-t border-slate-100 space-y-3">
-                            <p class="text-xs text-slate-600 pt-3">
-                                Data mesin biometrik wajah disinkronkan secara berkala dan diverifikasi sistem eSDM.
-                            </p>
-                            <div class="overflow-x-auto">
-                                <table class="w-full text-left text-xs text-slate-700 border-collapse">
-                                    <thead>
-                                        <tr class="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200 text-xs">
-                                            <th class="py-2.5 px-3">Nama Pegawai &amp; Unit</th>
-                                            <th class="py-2.5 px-3">Jam Masuk</th>
-                                            <th class="py-2.5 px-3">Metode</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-slate-100">
-                                        <tr v-for="(lateBio, idx) in topLateBiometric" :key="idx" class="hover:bg-slate-50/50">
-                                            <td class="py-2.5 px-3">
-                                                <div class="font-bold text-slate-800">{{ lateBio.name }}</div>
-                                                <div class="text-xs text-slate-600">{{ lateBio.division }}</div>
-                                            </td>
-                                            <td class="py-2.5 px-3 font-mono font-bold text-rose-700 whitespace-nowrap">{{ lateBio.time }}</td>
-                                            <td class="py-2.5 px-3 text-slate-700 font-medium">{{ lateBio.shift }}</td>
-                                        </tr>
-                                        <tr v-if="topLateBiometric.length === 0">
-                                            <td colspan="3" class="py-5 px-3 text-center text-slate-600">
-                                                Tidak ada data keterlambatan absen wajah hari ini.
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 3C. FORMULIR ABSEN PULANG -->
-                    <div class="bg-white rounded-2xl border border-slate-200 shadow-md overflow-hidden">
-                        <div class="px-5 py-4 bg-[#005BAC] text-white flex items-center justify-between">
-                            <div class="flex items-center gap-2.5">
-                                <i class="pi pi-sign-out text-lg" aria-hidden="true" />
-                                <div>
-                                    <h2 class="font-bold text-sm sm:text-base tracking-tight text-white">Form Absen Pulang</h2>
-                                    <p class="text-xs text-blue-100">Masuk: {{ fmt(todayAttendance?.check_in_time) }} • {{ todayLabel }}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="p-5 sm:p-6 space-y-4">
-                            <!-- Waktu Realtime Kepulangan -->
-                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:p-5 rounded-xl bg-slate-50 border border-slate-200">
-                                <div class="flex items-center gap-3 min-w-0">
-                                    <div class="size-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-xs text-[#005BAC]">
-                                        <i class="pi pi-clock text-lg" aria-hidden="true" />
-                                    </div>
-                                    <div class="min-w-0">
-                                        <span class="text-xs font-semibold text-slate-700 block">Waktu Saat Ini</span>
-                                        <p class="text-xs text-slate-600 mt-0.5">Waktu kepulangan tercatat otomatis saat Anda menekan tombol absen</p>
-                                    </div>
-                                </div>
-                                <div class="flex items-baseline gap-1.5 font-sans sm:text-right shrink-0">
-                                    <span class="text-3xl sm:text-4xl font-extrabold text-slate-800 tracking-tight font-sans select-none">
-                                        {{ realtimeClock }}
-                                    </span>
-                                    <span class="text-xs sm:text-sm font-bold text-slate-600 font-sans">WIB</span>
+                            <div class="flex items-start gap-2.5 min-w-0">
+                                <i :class="['text-base shrink-0 mt-0.5', effectiveLocationState.iconClass]" aria-hidden="true" />
+                                <div class="min-w-0 text-xs">
+                                    <p class="font-bold leading-snug">{{ effectiveLocationState.title }}</p>
+                                    <p class="text-xs mt-0.5 leading-snug">{{ effectiveLocationState.detail }}</p>
                                 </div>
                             </div>
 
-                            <!-- Info Grid Ringkas -->
-                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                                <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80">
-                                    <span class="text-slate-600 block text-[11px] font-semibold">NPP</span>
-                                    <span class="font-bold text-slate-800 font-mono">{{ employeeNip }}</span>
-                                </div>
-                                <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80">
-                                    <span class="text-slate-600 block text-[11px] font-semibold">Shift</span>
-                                    <span class="font-bold text-slate-800 truncate block">{{ todayAttendance?.shift_name }}</span>
-                                </div>
-                                <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80">
-                                    <span class="text-slate-600 block text-[11px] font-semibold">Mode</span>
-                                    <span class="font-bold text-slate-800">{{ todayAttendance?.work_mode }}</span>
-                                </div>
-                                <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80">
-                                    <span class="text-slate-600 block text-[11px] font-semibold">Jam Masuk</span>
-                                    <span class="font-bold text-[#005BAC] font-mono">{{ fmt(todayAttendance?.check_in_time) }}</span>
-                                </div>
-                            </div>
-
-                            <!-- Peta Geofence Form Pulang -->
-                            <div class="space-y-2">
-                                <div class="flex items-center justify-between flex-wrap gap-2">
-                                    <span class="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                                        <i class="pi pi-map-marker text-[#005BAC]" aria-hidden="true" />
-                                        <span>Peta Lokasi &amp; Geofence Pabrik</span>
-                                    </span>
-                                    <div class="flex items-center gap-2 flex-wrap justify-end">
-                                        <span v-if="insideZone && currentZoneName" class="text-xs text-[#005BAC] font-bold flex items-center gap-1">
-                                            <i class="pi pi-check text-xs" aria-hidden="true" />
-                                            <span>Zona: {{ currentZoneName }}</span>
-                                        </span>
-                                        <span v-else-if="gpsReady && !insideZone && !isLocating" class="text-xs text-rose-700 font-bold flex items-center gap-1">
-                                            <i class="pi pi-exclamation-circle text-xs" aria-hidden="true" />
-                                            <span>Di Luar Area Sah</span>
-                                        </span>
-                                        <Button
-                                            icon="pi pi-crosshairs"
-                                            label="Pusatkan"
-                                            size="small"
-                                            text
-                                            class="!text-xs !min-h-[44px] !min-w-[44px] !px-3 !text-[#005BAC] cursor-pointer"
-                                            @click="centerUserLocation"
-                                        />
-                                    </div>
-                                </div>
-                                <div
-                                    class="relative z-0 isolate w-full rounded-xl border border-slate-200 overflow-hidden shadow-xs"
-                                    style="height: 260px; background: #e2e8f0;"
-                                >
-                                    <div ref="mapCheckOutContainer" class="w-full h-full" />
-                                    <div
-                                        v-if="mapLoadError"
-                                        class="absolute inset-0 flex flex-col items-center justify-center p-4 text-center bg-slate-100 text-slate-700 text-xs gap-1.5"
-                                    >
-                                        <i class="pi pi-map text-lg text-[#005BAC]" aria-hidden="true" />
-                                        <p class="font-semibold">Peta lokasi tidak dapat dimuat saat ini.</p>
-                                        <p class="text-slate-600">Verifikasi koordinat GPS tetap berjalan di perangkat Anda.</p>
-                                    </div>
-                                </div>
-
-                                <!-- GPS Status & Map Legend -->
-                                <div class="flex items-center justify-between text-xs text-slate-600 pt-0.5 flex-wrap gap-2">
-                                    <div class="flex items-center gap-1.5">
-                                        <span class="size-2.5 rounded-full bg-[#005BAC]" aria-hidden="true" />
-                                        <span>Poligon Biru = Zona Gedung KFPB</span>
-                                    </div>
-                                    <div v-if="gpsReady && gpsLat" class="font-mono text-slate-700 flex items-center gap-1">
-                                        <i class="pi pi-map-marker text-[#005BAC]" aria-hidden="true" />
-                                        <span>{{ gpsLat?.toFixed(6) }}, {{ gpsLon?.toFixed(6) }}</span>
-                                        <span v-if="isLocating" class="text-slate-600 text-xs ml-1">
-                                            <i class="pi pi-spin pi-spinner" aria-hidden="true" />
-                                        </span>
-                                    </div>
-                                </div>
-                                <div v-if="gpsError || isLocating" class="mt-2 p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-2.5">
-                                    <div class="flex items-center gap-2">
-                                        <i :class="isLocating ? 'pi pi-spin pi-spinner text-amber-700' : 'pi pi-exclamation-triangle text-amber-700'" aria-hidden="true" />
-                                        <span class="font-medium">{{ isLocating ? 'Sedang mendeteksi sinyal GPS perangkat...' : gpsError }}</span>
-                                    </div>
-                                    <div v-if="!isLocating" class="flex items-center gap-2.5 pt-2 border-t border-amber-200 flex-wrap">
-                                        <Button
-                                            label="Coba Ulangi GPS"
-                                            icon="pi pi-refresh"
-                                            size="small"
-                                            severity="secondary"
-                                            outlined
-                                            class="!text-xs !min-h-[44px] !px-3.5 !rounded-lg !text-slate-700 !border-slate-300 !bg-white hover:!bg-slate-50"
-                                            @click="startGeolocation(false)"
-                                        />
-                                        <Button
-                                            v-if="isDevMode || gpsError.includes('Timeout') || gpsError.includes('tidak tersedia')"
-                                            label="Gunakan Titik KFPB (Mode Dev)"
-                                            icon="pi pi-map-marker"
-                                            size="small"
-                                            outlined
-                                            class="!text-xs !min-h-[44px] !px-3.5 !rounded-lg !text-[#005BAC] !border-[#005BAC]/50 !bg-white hover:!bg-blue-50"
-                                            @click="useLocalSimulation"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Catatan Pulang -->
-                            <div>
-                                <label for="checkout-notes" class="block text-xs font-semibold text-slate-700 mb-1.5">Informasi / Catatan (Opsional)</label>
-                                <InputText
-                                    id="checkout-notes"
-                                    name="notes"
-                                    v-model="checkOutForm.notes"
-                                    placeholder="Isi catatan jika ada..."
-                                    class="w-full !text-sm"
-                                />
-                            </div>
-
-                            <!-- Tombol Submit Absen Pulang -->
-                            <div>
+                            <div class="flex items-center gap-2 shrink-0 flex-wrap">
                                 <Button
-                                    :label="isLocating ? 'Mengecek Lokasi GPS Langsung...' : 'Klik Untuk Absen Pulang'"
-                                    icon="pi pi-sign-out"
-                                    :loading="checkOutForm.processing || isLocating"
-                                    :disabled="checkOutForm.processing || isLocating || !gpsReady"
-                                    class="w-full !min-h-[48px] !bg-[#005BAC] !border-[#005BAC] hover:!bg-[#004b8e] !font-bold !py-3.5 shadow-md text-sm sm:text-base !rounded-xl"
-                                    @click="submitCheckOut"
+                                    v-if="!isLocating && (!gpsReady || (requiresGeofence && !insideZone))"
+                                    type="button"
+                                    label="Ulangi GPS"
+                                    icon="pi pi-refresh"
+                                    size="small"
+                                    severity="secondary"
+                                    outlined
+                                    class="!text-xs !min-h-[44px] !px-3 !rounded-lg !text-slate-700 !border-slate-300 !bg-white hover:!bg-slate-50"
+                                    @click="startGeolocation(false)"
                                 />
-                                <p v-if="!gpsReady" class="text-xs text-slate-600 mt-2 flex items-center gap-1.5">
-                                    <i class="pi pi-info-circle text-[#005BAC] shrink-0" aria-hidden="true" />
-                                    <span>
-                                        {{
-                                            isLocating
-                                                ? 'Menunggu koordinat GPS perangkat sebelum absen dapat dikirim.'
-                                                : (isDevMode
-                                                    ? 'GPS belum aktif. Klik "Coba Ulangi GPS" atau "Gunakan Titik KFPB (Mode Dev)" di atas.'
-                                                    : 'GPS belum aktif. Pastikan izin lokasi aktif lalu klik "Coba Ulangi GPS".')
-                                        }}
-                                    </span>
-                                </p>
+                                <Button
+                                    v-if="isDevMode && !isLocating && (!gpsReady || (requiresGeofence && !insideZone))"
+                                    type="button"
+                                    label="Simulasi KFPB"
+                                    icon="pi pi-map-marker"
+                                    size="small"
+                                    outlined
+                                    class="!text-xs !min-h-[44px] !px-3 !rounded-lg !text-[#005BAC] !border-[#005BAC]/50 !bg-white hover:!bg-blue-50"
+                                    @click="useLocalSimulation"
+                                />
+                                <Button
+                                    v-if="gpsReady && (!requiresGeofence || insideZone)"
+                                    type="button"
+                                    icon="pi pi-crosshairs"
+                                    label="Pusatkan"
+                                    size="small"
+                                    severity="secondary"
+                                    outlined
+                                    class="!text-xs !min-h-[44px] !px-3 !rounded-lg !text-slate-700 !border-slate-300 !bg-white hover:!bg-slate-50"
+                                    @click="centerUserLocation"
+                                />
                             </div>
                         </div>
+
+                        <!-- Peta Lokasi Pulang -->
+                        <div class="space-y-1.5">
+                            <div
+                                class="relative z-0 isolate w-full rounded-xl border border-slate-200 overflow-hidden shadow-2xs"
+                                style="height: 230px; background: #e2e8f0;"
+                            >
+                                <div ref="mapCheckOutContainer" class="w-full h-full" />
+                                <div
+                                    v-if="mapLoadError"
+                                    class="absolute inset-0 flex flex-col items-center justify-center p-4 text-center bg-slate-100 text-slate-700 text-xs gap-1.5"
+                                >
+                                    <i class="pi pi-map text-lg text-[#005BAC]" aria-hidden="true" />
+                                    <p class="font-semibold">Peta lokasi tidak dapat dimuat saat ini.</p>
+                                    <p class="text-slate-600">Verifikasi koordinat GPS tetap berjalan di perangkat Anda.</p>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center justify-between text-xs text-slate-600 flex-wrap gap-2">
+                                <div class="flex items-center gap-1.5">
+                                    <span class="size-2.5 rounded-full bg-[#005BAC]" aria-hidden="true" />
+                                    <span>Area Biru = Wilayah Pabrik KFPB</span>
+                                </div>
+                                <div v-if="gpsReady && gpsLat" class="font-mono text-slate-700 flex items-center gap-1">
+                                    <i class="pi pi-map-marker text-[#005BAC]" aria-hidden="true" />
+                                    <span>{{ gpsLat?.toFixed(5) }}, {{ gpsLon?.toFixed(5) }}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Catatan Pulang Opsional -->
+                        <div>
+                            <label for="checkout-notes" class="block text-xs font-semibold text-slate-700 mb-1.5">
+                                Catatan Pulang (Opsional)
+                            </label>
+                            <InputText
+                                id="checkout-notes"
+                                name="notes"
+                                v-model="checkOutForm.notes"
+                                placeholder="Isi catatan jika ada..."
+                                class="w-full !text-sm"
+                            />
+                        </div>
+
+                        <!-- CTA Utama Absen Pulang -->
+                        <Button
+                            type="button"
+                            :label="checkOutButtonLabel"
+                            icon="pi pi-sign-out"
+                            :loading="checkOutForm.processing || isLocating"
+                            :disabled="isCheckOutDisabled"
+                            class="w-full !min-h-[48px] !bg-[#005BAC] !border-[#005BAC] hover:!bg-[#004280] !font-bold !py-3 shadow-sm text-sm sm:text-base !rounded-xl"
+                            @click="handleCheckOutClick"
+                        />
                     </div>
+                    </section>
                 </template>
 
-                <!-- 4. TABEL RIWAYAT PRESENSI SAYA (DIBATASI 3 DATA DENGAN PAGINATION) -->
-                <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-                    <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div>
-                            <h2 class="font-bold text-slate-800 text-sm tracking-tight flex items-center gap-2">
-                                <i class="pi pi-history text-[#005BAC]" aria-hidden="true" />
-                                <span>Riwayat Presensi Mandiri Anda</span>
+                <!-- 1C. STATUS IZIN / CUTI AKTIF -->
+                <section
+                    v-else-if="attendanceStatus === 'leave'"
+                    aria-label="Status Izin atau Cuti Aktif"
+                    class="bg-white rounded-2xl border border-slate-200/90 shadow-md lg:shadow-sm p-5 space-y-3"
+                >
+                    <div class="flex items-center justify-between gap-2">
+                        <div class="flex items-center gap-2.5 min-w-0">
+                            <div class="size-9 rounded-xl bg-blue-50 text-[#005BAC] border border-blue-100 flex items-center justify-center shrink-0">
+                                <i class="pi pi-calendar-minus text-base" aria-hidden="true" />
+                            </div>
+                            <h2 class="font-bold text-base text-slate-900 tracking-tight truncate">
+                                Permohonan {{ activeLeave.name }} Tercatat
                             </h2>
-                            <p class="text-xs text-slate-600 mt-0.5">Catatan presensi kerja Anda di PT Kimia Farma Plant Banjaran</p>
                         </div>
+                        <Tag value="Izin / Cuti" severity="warn" class="!text-xs !font-bold shrink-0" />
+                    </div>
+                    <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 text-xs sm:text-sm text-blue-900 leading-relaxed">
+                        Keterangan: <b>{{ activeLeave.reason }}</b>. Anda tidak perlu absen masuk dan pulang hari ini.
+                    </div>
+                    <div>
+                        <Link
+                            href="/izin/buat?tab=history"
+                            class="inline-flex items-center justify-center gap-2 min-h-[44px] px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-colors"
+                        >
+                            <span>Lihat Riwayat Izin</span>
+                            <i class="pi pi-arrow-right text-xs" aria-hidden="true" />
+                        </Link>
+                    </div>
+                </section>
+
+                <!-- 2. RIWAYAT PRESENSI TERAKHIR -->
+                <section aria-label="Riwayat Presensi Terakhir" class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+                    <div class="px-5 py-3.5 border-b border-slate-200/80 flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-2">
+                            <i class="pi pi-history text-[#005BAC]" aria-hidden="true" />
+                            <h2 class="font-bold text-slate-900 text-sm tracking-tight">Riwayat Presensi Terakhir</h2>
+                        </div>
+                        <Link
+                            href="/absensi/laporan"
+                            class="inline-flex items-center gap-1.5 min-h-[44px] px-2.5 rounded-lg text-xs font-semibold text-[#005BAC] hover:bg-blue-50 transition-colors shrink-0"
+                        >
+                            <span>Lihat Semua</span>
+                            <i class="pi pi-arrow-right text-[11px]" aria-hidden="true" />
+                        </Link>
                     </div>
 
-                    <!-- Tampilan Desktop (Tabel) -->
-                    <div class="hidden sm:block overflow-x-auto">
-                        <table class="w-full text-left text-xs text-slate-700 border-collapse">
-                            <thead>
-                                <tr class="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200 text-xs">
-                                    <th class="py-3 px-3.5">Tanggal &amp; Shift</th>
-                                    <th class="py-3 px-3.5">Jam Masuk</th>
-                                    <th class="py-3 px-3.5">Jam Pulang</th>
-                                    <th class="py-3 px-3.5">Mode</th>
-                                    <th class="py-3 px-3.5">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100">
-                                <tr v-for="att in attendanceList" :key="att.id" class="hover:bg-slate-50/50">
-                                    <td class="py-3 px-3.5">
-                                        <div class="font-bold text-slate-800">{{ att.date_formatted }}</div>
-                                        <div class="text-xs text-slate-600">{{ att.shift_name }}</div>
-                                    </td>
-                                    <td class="py-3 px-3.5 font-mono font-bold whitespace-nowrap" :class="att.is_late ? 'text-[#c2410c]' : 'text-[#005BAC]'">
-                                        {{ att.check_in }}
-                                    </td>
-                                    <td class="py-3 px-3.5 font-mono font-bold whitespace-nowrap" :class="att.is_early_leave ? 'text-rose-700' : 'text-slate-700'">
-                                        {{ att.check_out }}
-                                    </td>
-                                    <td class="py-3 px-3.5">
-                                        <span class="inline-block px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 text-slate-700">
-                                            {{ att.work_mode }}
-                                        </span>
-                                    </td>
-                                    <td class="py-3 px-3.5">
-                                        <Tag
-                                            :value="att.status_label"
-                                            :severity="att.status_severity"
-                                            class="!text-[11px] !font-bold"
-                                        />
-                                    </td>
-                                </tr>
-                                <tr v-if="attendanceList.length === 0">
-                                    <td colspan="5" class="py-6 px-4 text-center text-slate-600">
-                                        Belum ada riwayat presensi tercatat.
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+                    <div
+                        v-if="isPaginatingHistory"
+                        role="status"
+                        aria-live="polite"
+                        class="py-8 px-4 text-center space-y-2"
+                    >
+                        <i class="pi pi-spin motion-reduce:animate-none pi-spinner text-xl text-[#005BAC]" aria-hidden="true" />
+                        <p class="text-xs font-medium text-slate-700">Memuat halaman riwayat presensi...</p>
                     </div>
 
-                    <!-- Tampilan Mobile (Daftar Kartu Kompak) -->
-                    <div class="block sm:hidden divide-y divide-slate-100">
-                        <div v-for="att in attendanceList" :key="'m-' + att.id" class="p-4 space-y-2">
-                            <div class="flex items-center justify-between gap-2">
-                                <span class="font-bold text-xs text-slate-800">{{ att.date_formatted }}</span>
-                                <Tag :value="att.status_label" :severity="att.status_severity" class="!text-[11px] !font-bold shrink-0" />
-                            </div>
-                            <div class="flex items-center justify-between gap-2 text-xs text-slate-600 font-mono flex-wrap">
-                                <span>Shift: {{ att.shift_name }}</span>
-                                <span>Mode: {{ att.work_mode }}</span>
-                            </div>
-                            <div class="grid grid-cols-2 gap-2 text-xs pt-1">
-                                <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80">
-                                    <span class="text-slate-600 block text-[11px]">Masuk:</span>
-                                    <span class="font-bold font-mono" :class="att.is_late ? 'text-[#c2410c]' : 'text-[#005BAC]'">{{ att.check_in }}</span>
+                    <template v-else>
+                        <!-- Tampilan Desktop (Tabel) -->
+                        <div class="hidden sm:block overflow-x-auto">
+                            <table class="w-full text-left text-xs text-slate-700 border-collapse">
+                                <caption class="sr-only">Riwayat presensi terakhir pegawai</caption>
+                                <thead>
+                                    <tr class="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200 text-xs">
+                                        <th scope="col" class="py-3 px-4">Tanggal &amp; Shift</th>
+                                        <th scope="col" class="py-3 px-4">Jam Masuk</th>
+                                        <th scope="col" class="py-3 px-4">Jam Pulang</th>
+                                        <th scope="col" class="py-3 px-4">Mode</th>
+                                        <th scope="col" class="py-3 px-4">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    <tr v-for="att in attendanceList" :key="att.id" class="hover:bg-slate-50/50">
+                                        <td class="py-3 px-4">
+                                            <div class="font-bold text-slate-800">{{ att.date_formatted }}</div>
+                                            <div class="text-xs text-slate-600">{{ att.shift_name }}</div>
+                                        </td>
+                                        <td class="py-3 px-4 font-mono font-bold whitespace-nowrap" :class="att.is_late ? 'text-[#c2410c]' : 'text-[#005BAC]'">
+                                            {{ att.check_in }}
+                                        </td>
+                                        <td class="py-3 px-4 font-mono font-bold whitespace-nowrap" :class="att.is_early_leave ? 'text-rose-700' : 'text-slate-700'">
+                                            {{ att.check_out }}
+                                        </td>
+                                        <td class="py-3 px-4">
+                                            <span class="inline-block px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 text-slate-700">
+                                                {{ att.work_mode }}
+                                            </span>
+                                        </td>
+                                        <td class="py-3 px-4">
+                                            <Tag
+                                                :value="att.status_label"
+                                                :severity="att.status_severity"
+                                                class="!text-[11px] !font-bold"
+                                            />
+                                        </td>
+                                    </tr>
+                                    <tr v-if="attendanceList.length === 0">
+                                        <td colspan="5" class="py-6 px-4 text-center text-slate-600">
+                                            Belum ada riwayat presensi tercatat.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Tampilan Mobile (Daftar Kartu Kompak) -->
+                        <div class="block sm:hidden divide-y divide-slate-100">
+                            <div v-for="att in attendanceList" :key="'m-' + att.id" class="p-4 space-y-2">
+                                <div class="flex items-center justify-between gap-2">
+                                    <span class="font-bold text-xs text-slate-800">{{ att.date_formatted }}</span>
+                                    <Tag :value="att.status_label" :severity="att.status_severity" class="!text-[11px] !font-bold shrink-0" />
                                 </div>
-                                <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80">
-                                    <span class="text-slate-600 block text-[11px]">Pulang:</span>
-                                    <span class="font-bold font-mono" :class="att.is_early_leave ? 'text-rose-700' : 'text-slate-700'">{{ att.check_out }}</span>
+                                <div class="flex items-center justify-between gap-2 text-xs text-slate-600 font-mono flex-wrap">
+                                    <span>Shift: {{ att.shift_name }}</span>
+                                    <span>Mode: {{ att.work_mode }}</span>
+                                </div>
+                                <div class="grid grid-cols-2 gap-2 text-xs pt-1">
+                                    <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80">
+                                        <span class="text-slate-600 block text-[11px]">Masuk:</span>
+                                        <span class="font-bold font-mono" :class="att.is_late ? 'text-[#c2410c]' : 'text-[#005BAC]'">{{ att.check_in }}</span>
+                                    </div>
+                                    <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80">
+                                        <span class="text-slate-600 block text-[11px]">Pulang:</span>
+                                        <span class="font-bold font-mono" :class="att.is_early_leave ? 'text-rose-700' : 'text-slate-700'">{{ att.check_out }}</span>
+                                    </div>
                                 </div>
                             </div>
+                            <div v-if="attendanceList.length === 0" class="p-6 text-center text-slate-600 text-xs">
+                                Belum ada riwayat presensi tercatat.
+                            </div>
                         </div>
-                        <div v-if="attendanceList.length === 0" class="p-6 text-center text-slate-600 text-xs">
-                            Belum ada riwayat presensi tercatat.
-                        </div>
-                    </div>
+                    </template>
 
-                    <!-- Pagination Controls Minimalis (Load Cepat) -->
+                    <!-- Pagination Controls -->
                     <div
                         v-if="recentAttendances?.total > 3"
                         class="px-4 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600 gap-2"
@@ -1576,6 +1695,7 @@ const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currenc
                                 preserve-scroll
                                 aria-label="Halaman sebelumnya"
                                 class="min-w-11 min-h-11 inline-flex items-center justify-center rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium transition-colors"
+                                @click="handlePaginationClick"
                             >
                                 <i class="pi pi-chevron-left text-xs" aria-hidden="true" />
                             </Link>
@@ -1584,7 +1704,7 @@ const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currenc
                                 type="button"
                                 disabled
                                 aria-label="Halaman sebelumnya"
-                                class="min-w-11 min-h-11 inline-flex items-center justify-center rounded-lg bg-slate-100 border border-slate-200 text-slate-500 cursor-not-allowed"
+                                class="min-w-11 min-h-11 inline-flex items-center justify-center rounded-lg bg-slate-100 border border-slate-200 text-slate-600 cursor-not-allowed"
                             >
                                 <i class="pi pi-chevron-left text-xs" aria-hidden="true" />
                             </button>
@@ -1595,6 +1715,7 @@ const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currenc
                                 preserve-scroll
                                 aria-label="Halaman berikutnya"
                                 class="min-w-11 min-h-11 inline-flex items-center justify-center rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium transition-colors"
+                                @click="handlePaginationClick"
                             >
                                 <i class="pi pi-chevron-right text-xs" aria-hidden="true" />
                             </Link>
@@ -1603,30 +1724,97 @@ const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currenc
                                 type="button"
                                 disabled
                                 aria-label="Halaman berikutnya"
-                                class="min-w-11 min-h-11 inline-flex items-center justify-center rounded-lg bg-slate-100 border border-slate-200 text-slate-500 cursor-not-allowed"
+                                class="min-w-11 min-h-11 inline-flex items-center justify-center rounded-lg bg-slate-100 border border-slate-200 text-slate-600 cursor-not-allowed"
                             >
                                 <i class="pi pi-chevron-right text-xs" aria-hidden="true" />
                             </button>
                         </div>
                     </div>
-                </div>
-
+                </section>
             </div>
 
-            <!-- ============================================================== -->
-            <!-- KOLOM KANAN (5 Kolom): Ringkasan Kehadiran & Ketentuan Area      -->
-            <!-- ============================================================== -->
-            <div class="xl:col-span-5 min-w-0 space-y-6">
+            <!-- ================= KOLOM KANAN (5 Kolom): Status, Ringkasan & Referensi ================= -->
+            <div class="xl:col-span-5 min-w-0 space-y-5">
 
-                <!-- 1. RINGKASAN KEHADIRAN BULAN BERJALAN -->
-                <div class="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 space-y-4">
-                    <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <!-- 1. STATUS HARI INI (eSDM vs FaceID) -->
+                <section aria-label="Status Kehadiran Hari Ini" class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+                    <div class="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-2 bg-slate-50">
+                        <div class="flex items-center gap-2">
+                            <i class="pi pi-info-circle text-[#005BAC]" aria-hidden="true" />
+                            <h2 class="font-bold text-slate-900 text-sm tracking-tight">Status Hari Ini</h2>
+                        </div>
+                        <Tag
+                            v-if="attendanceStatus === 'leave'"
+                            value="Izin / Cuti"
+                            severity="warn"
+                            class="!text-[11px] !font-bold"
+                        />
+                        <Tag
+                            v-else-if="attendanceStatus === 'in'"
+                            value="Sudah Masuk"
+                            severity="info"
+                            class="!text-[11px] !font-bold"
+                        />
+                        <Tag
+                            v-else
+                            value="Belum Masuk"
+                            severity="danger"
+                            class="!text-[11px] !font-bold"
+                        />
+                    </div>
+
+                    <div class="p-4 sm:p-5 space-y-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                            <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                                <div class="text-xs font-semibold text-slate-700 flex items-center justify-between">
+                                    <span>Aplikasi eSDM</span>
+                                    <span class="text-[11px] text-[#005BAC] font-semibold font-mono">Web/GPS</span>
+                                </div>
+                                <div class="grid grid-cols-2 gap-2 text-xs">
+                                    <div>
+                                        <span class="text-slate-600 block">Masuk</span>
+                                        <span class="font-bold text-slate-900 font-mono text-sm">{{ fmt(todayAttendance?.check_in_time) }}</span>
+                                    </div>
+                                    <div>
+                                        <span class="text-slate-600 block">Pulang</span>
+                                        <span class="font-bold text-slate-900 font-mono text-sm">{{ fmt(todayAttendance?.check_out_time) }}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                                <div class="text-xs font-semibold text-slate-700 flex items-center justify-between">
+                                    <span>Mesin Wajah (FaceID)</span>
+                                    <span class="text-[11px] text-[#005BAC] font-semibold font-mono">Plant</span>
+                                </div>
+                                <div class="grid grid-cols-2 gap-2 text-xs">
+                                    <div>
+                                        <span class="text-slate-600 block">Masuk</span>
+                                        <span class="font-bold text-slate-900 font-mono text-sm">{{ faceCheckIn }}</span>
+                                    </div>
+                                    <div>
+                                        <span class="text-slate-600 block">Pulang</span>
+                                        <span class="font-bold text-slate-900 font-mono text-sm">{{ faceCheckOut }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <p class="text-xs text-slate-600 text-center">
+                            Sinkronisasi mesin wajah berkala (±1 jam).
+                        </p>
+                    </div>
+                </section>
+
+                <!-- 2. RINGKASAN PRESENSI BULAN INI -->
+                <section aria-label="Presensi Bulan Ini" class="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 space-y-4">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-3 gap-2">
                         <div class="flex items-center gap-2">
                             <i class="pi pi-calendar-check text-[#005BAC] text-base" aria-hidden="true" />
-                            <h2 class="font-bold text-slate-800 text-sm tracking-tight">Presensi Bulan Ini</h2>
+                            <h2 class="font-bold text-slate-900 text-sm tracking-tight">Presensi Bulan Ini</h2>
                         </div>
                         <span class="text-xs font-semibold text-slate-600 capitalize">
-                            {{ new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date()) }}
+                            {{ currentMonthLabel }}
                         </span>
                     </div>
 
@@ -1634,7 +1822,7 @@ const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currenc
                         <div class="p-3.5 rounded-xl bg-blue-50 border border-blue-200">
                             <span class="text-xs font-bold text-[#005BAC] block">Total Hadir</span>
                             <span class="text-2xl font-black text-[#005BAC] font-mono mt-1 block">{{ monthSummary?.total_hadir ?? 0 }}</span>
-                            <span class="text-xs text-[#005BAC] mt-0.5 block">Hari Kerja</span>
+                            <span class="text-xs text-[#004280] mt-0.5 block">Hari Kerja</span>
                         </div>
                         <div class="p-3.5 rounded-xl bg-orange-50 border border-orange-200">
                             <span class="text-xs font-bold text-[#c2410c] block">Terlambat</span>
@@ -1644,49 +1832,59 @@ const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currenc
                     </div>
 
                     <div v-if="(monthSummary?.total_potongan ?? 0) > 0" class="p-2.5 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-between text-xs">
-                        <span class="text-rose-800 font-medium">Potongan Keterlambatan:</span>
+                        <span class="text-rose-900 font-medium">Potongan Keterlambatan:</span>
                         <span class="font-bold font-mono text-rose-900">{{ fmtRp(monthSummary.total_potongan) }}</span>
                     </div>
-                </div>
 
-                <!-- 2. KETENTUAN & ZONA AREA SAH KFPB -->
-                <div class="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 space-y-4">
-                    <div class="flex items-center justify-between border-b border-slate-100 pb-3 gap-2">
-                        <div class="flex items-center gap-2">
-                            <i class="pi pi-shield text-[#005BAC] text-base" aria-hidden="true" />
-                            <h2 class="font-bold text-slate-800 text-sm tracking-tight">Area Presensi KFPB</h2>
-                        </div>
-                        <Tag
-                            :value="zoneStatusState.tagValue"
-                            :severity="zoneStatusState.tagSeverity"
-                            class="!text-[11px] !font-bold shrink-0"
-                        />
+                    <div class="pt-1 border-t border-slate-100 flex justify-end">
+                        <Link
+                            href="/absensi/laporan"
+                            class="inline-flex items-center gap-1.5 min-h-[44px] px-2.5 rounded-lg text-xs font-semibold text-[#005BAC] hover:bg-blue-50 transition-colors"
+                        >
+                            <span>Lihat Laporan Lengkap</span>
+                            <i class="pi pi-arrow-right text-[11px]" aria-hidden="true" />
+                        </Link>
                     </div>
+                </section>
 
-                    <!-- Status Indikator Realtime -->
-                    <div :class="['p-3.5 rounded-xl border flex items-start gap-3 transition-colors', zoneStatusState.boxClass]">
-                        <i :class="['text-lg shrink-0 mt-0.5', zoneStatusState.iconClass]" aria-hidden="true" />
-                        <div class="min-w-0 text-xs">
-                            <p class="font-bold leading-snug">{{ zoneStatusState.title }}</p>
-                            <p class="text-xs mt-1 leading-relaxed">{{ zoneStatusState.description }}</p>
+                <!-- 3. AREA GEDUNG RESMI KFPB (PROGRESSIVE DISCLOSURE) -->
+                <section aria-label="Area Gedung Resmi KFPB" class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+                    <button
+                        type="button"
+                        :aria-expanded="String(showGeofenceZones)"
+                        aria-controls="kfpb-zones-panel"
+                        class="w-full min-h-[44px] px-5 py-3.5 flex items-center justify-between gap-3 text-left hover:bg-slate-50 transition-colors cursor-pointer"
+                        @click="showGeofenceZones = !showGeofenceZones"
+                    >
+                        <div class="flex items-center gap-2 min-w-0">
+                            <i class="pi pi-shield text-[#005BAC] text-base shrink-0" aria-hidden="true" />
+                            <span class="font-bold text-slate-900 text-sm tracking-tight truncate">
+                                Area Gedung Resmi KFPB ({{ geofenceZones.length }})
+                            </span>
                         </div>
-                    </div>
-
-                    <!-- Daftar 6 Gedung KFPB -->
-                    <div class="space-y-2">
-                        <div class="flex items-center justify-between text-xs text-slate-700 font-semibold px-0.5">
-                            <span>6 Gedung Resmi Plant Banjaran</span>
-                            <span class="text-xs text-slate-600 font-medium">Radius ~300m</span>
+                        <div class="flex items-center gap-2 shrink-0">
+                            <span
+                                v-if="insideZone && currentZoneName"
+                                class="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-bold"
+                            >
+                                {{ currentZoneName }}
+                            </span>
+                            <i
+                                :class="['pi text-xs text-slate-600 transition-transform', showGeofenceZones ? 'pi-chevron-up' : 'pi-chevron-down']"
+                                aria-hidden="true"
+                            />
                         </div>
+                    </button>
 
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    <div id="kfpb-zones-panel" v-show="showGeofenceZones" class="px-5 pb-4 pt-3 border-t border-slate-100 space-y-3">
+                        <div v-if="geofenceZones.length > 0" class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                             <div
                                 v-for="(zone, i) in geofenceZones"
-                                :key="i"
+                                :key="zone.id || i"
                                 :class="[
-                                    'flex items-center justify-between px-3 py-2 rounded-xl border text-xs transition-all',
+                                    'flex items-center justify-between px-3 py-2 rounded-xl border text-xs transition-colors',
                                     currentZoneName === (zone.label || zone.name)
-                                        ? 'bg-blue-50 border-[#005BAC]/50 text-[#005BAC] font-bold shadow-xs'
+                                        ? 'bg-blue-50 border-[#005BAC]/50 text-[#004280] font-bold'
                                         : 'bg-slate-50 border-slate-200 text-slate-700'
                                 ]"
                             >
@@ -1703,25 +1901,74 @@ const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currenc
                                     </span>
                                     <span class="truncate">{{ zone.label || zone.name }}</span>
                                 </div>
-                                <i
-                                    v-if="currentZoneName === (zone.label || zone.name)"
-                                    class="pi pi-check text-xs text-[#005BAC] shrink-0 ml-1"
-                                    aria-label="Zona aktif"
-                                />
+                                <template v-if="currentZoneName === (zone.label || zone.name)">
+                                    <i class="pi pi-check text-xs text-[#005BAC] shrink-0 ml-1" aria-hidden="true" />
+                                    <span class="sr-only">Zona aktif</span>
+                                </template>
                             </div>
                         </div>
-                    </div>
-
-                    <div class="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-900 leading-relaxed flex items-start gap-2">
-                        <i class="pi pi-info-circle text-[#005BAC] text-sm shrink-0 mt-0.5" aria-hidden="true" />
-                        <p class="text-xs text-blue-900">
-                            Bagi pegawai dengan mode <b>Flexi Time</b> atau <b>PKL / Magang</b>, pembatasan geofence gedung diabaikan otomatis oleh sistem.
+                        <p v-else class="text-xs text-slate-600">
+                            Daftar zona gedung belum tersedia; sistem memakai perimeter pabrik Plant Banjaran (~300m).
+                        </p>
+                        <p class="text-xs text-slate-600">
+                            Mode Flexi Time &amp; PKL bebas batas area gedung.
                         </p>
                     </div>
-                </div>
-
+                </section>
             </div>
-
         </div>
+        </div>
+
+        <!-- ================= DIALOG KONFIRMASI PULANG LEBIH AWAL ================= -->
+        <Dialog
+            v-model:visible="showEarlyCheckoutDialog"
+            modal
+            header="Konfirmasi Pulang Lebih Awal"
+            :style="{ width: '440px', maxWidth: '94vw' }"
+            :closable="true"
+        >
+            <p class="text-sm text-slate-700 leading-relaxed">
+                Jadwal pulang <b>{{ activeShiftSchedule?.name || todayAttendance?.shift_name }}</b> pukul
+                <b class="font-mono text-slate-900">{{ activeShiftSchedule?.check_out }} WIB</b>
+                (sekarang <b class="font-mono text-slate-900">{{ realtimeClock.substring(0, 5) }} WIB</b>).
+                Lanjutkan absen pulang?
+            </p>
+
+            <template #footer>
+                <div class="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 w-full">
+                    <Button
+                        type="button"
+                        label="Batal"
+                        severity="secondary"
+                        outlined
+                        class="min-h-[44px] !text-slate-700"
+                        @click="showEarlyCheckoutDialog = false"
+                    />
+                    <Button
+                        type="button"
+                        label="Ya, Absen Pulang"
+                        icon="pi pi-sign-out"
+                        class="min-h-[44px] !bg-[#005BAC] hover:!bg-[#004280] !border-[#005BAC] !text-white font-semibold"
+                        @click="confirmEarlyCheckOut"
+                    />
+                </div>
+            </template>
+        </Dialog>
     </div>
 </template>
+
+<style scoped>
+@media (max-width: 1023px) {
+    .mobile-navy-arch {
+        border-bottom-left-radius: 50% 34px;
+        border-bottom-right-radius: 50% 34px;
+    }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+    .mobile-navy-arch {
+        border-bottom-left-radius: 50% 42px;
+        border-bottom-right-radius: 50% 42px;
+    }
+}
+</style>

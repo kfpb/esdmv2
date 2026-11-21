@@ -404,7 +404,11 @@ class AttendanceController extends Controller
         return [
             'id'               => $a->id,
             'attendance_date'  => $a->attendance_date->toDateString(),
+            'work_shift_id'    => $a->work_shift_id,
             'shift_name'       => $a->workShift?->name ?? '-',
+            'shift_check_in'   => $a->workShift?->check_in_time ? substr($a->workShift->check_in_time, 0, 5) : null,
+            'shift_check_out'  => $a->workShift?->check_out_time ? substr($a->workShift->check_out_time, 0, 5) : null,
+            'shift_is_night'   => (bool) ($a->workShift?->is_night_shift ?? false),
             'check_in_time'    => $a->check_in_time,
             'check_out_time'   => $a->check_out_time,
             'is_present_in'    => $a->is_present_in,
