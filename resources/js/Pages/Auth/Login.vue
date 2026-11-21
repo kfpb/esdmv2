@@ -454,19 +454,19 @@ const submit = () => {
                 <div class="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5">
                     <div class="flex items-start gap-2.5">
                         <span class="size-5 rounded-full bg-blue-100 text-[#005BAC] font-bold flex items-center justify-center shrink-0 text-[11px]">1</span>
-                        <span>Datang langsung ke <strong>Divisi SDM &amp; Organisasi</strong> (Gedung Manajemen Lt. 2 Plant Banjaran).</span>
+                        <span>Datang langsung ke <strong>SDM</strong> (Gedung Office Plant Banjaran).</span>
                     </div>
                     <div class="flex items-start gap-2.5">
                         <span class="size-5 rounded-full bg-blue-100 text-[#005BAC] font-bold flex items-center justify-center shrink-0 text-[11px]">2</span>
-                        <span>Hubungi Helpdesk Internal SDM KFPB dengan menyertakan <strong>NIP, Nama Lengkap, dan Unit Kerja</strong>.</span>
+                        <span>Hubungi Helpdesk SDM KFPB dengan menyertakan <strong>NIP, Nama Lengkap, dan Unit Kerja</strong>.</span>
                     </div>
                 </div>
 
                 <div class="bg-blue-50 border border-blue-200/80 rounded-xl p-3 text-slate-800 flex items-center gap-3">
                     <i class="pi pi-phone text-base text-[#005BAC] shrink-0" aria-hidden="true" />
                     <div class="min-w-0 flex-1">
-                        <div class="font-bold text-xs text-slate-900">Helpdesk SDM &amp; IT KFPB</div>
-                        <div class="text-xs text-slate-700">Ext: 214 / 215 (Jam Kerja Operasional)</div>
+                        <div class="font-bold text-xs text-slate-900">Helpdesk SDM &amp; ME-LE KFPB</div>
+                        <div class="text-xs text-slate-700">(Jam Kerja Operasional)</div>
                     </div>
                 </div>
 
