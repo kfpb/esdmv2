@@ -343,7 +343,7 @@ function getStatusSeverity(row) {
 <template>
     <Head title="Pengajuan Lembur (SPL) - eSDM PT Kimia Farma Plant Banjaran" />
 
-    <div class="space-y-5 max-w-5xl mx-auto px-3 sm:px-6 pt-1 pb-6">
+    <div class="space-y-5 max-w-7xl mx-auto px-3 sm:px-6 pt-1 pb-6">
         <Toast position="top-right" />
 
         <!-- ================= TOP PAGE HEADER (FLAT ON CANVAS, SERAGAM DENGAN /izin/buat) ================= -->

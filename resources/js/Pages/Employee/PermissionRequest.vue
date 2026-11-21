@@ -318,7 +318,7 @@ function permissionHint(id) {
 <template>
     <Head title="Lapor Tidak Masuk Kerja - eSDM PT Kimia Farma Plant Banjaran" />
 
-    <div class="space-y-5 max-w-5xl mx-auto px-3 sm:px-6 pt-1 pb-6">
+    <div class="space-y-5 max-w-7xl mx-auto px-3 sm:px-6 pt-1 pb-6">
         <Toast position="top-right" />
 
         <!-- ================= TOP PAGE HEADER (FLAT ON CANVAS, CLEAR HIERARCHY) ================= -->
@@ -874,7 +874,7 @@ function permissionHint(id) {
                                 </Column>
                                 <Column field="reason" header="Keterangan" style="min-width: 220px">
                                     <template #body="{ data }">
-                                        <p class="text-xs text-slate-700 line-clamp-2 max-w-xs">
+                                        <p class="text-xs text-slate-700 line-clamp-2 max-w-md">
                                             {{ data.reason }}
                                         </p>
                                     </template>
