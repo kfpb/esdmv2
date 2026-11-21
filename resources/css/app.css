@@ -131,7 +131,137 @@
     background-color: #f4f4f4;
 }
 
+/* Mobile View Transitions: Login <-> Portal Pegawai (/absensi & Dashboard) */
+@media (max-width: 1023px) {
+    html.esdm-vt-mobile .vt-mobile-navy {
+        view-transition-name: esdm-mobile-navy;
+    }
+
+    html.esdm-vt-mobile .vt-login-card {
+        view-transition-name: esdm-login-card;
+    }
+
+    html.esdm-vt-mobile .vt-mobile-topbar {
+        view-transition-name: esdm-mobile-topbar;
+    }
+
+    html.esdm-vt-mobile .vt-mobile-hero-content {
+        view-transition-name: esdm-mobile-hero-content;
+    }
+
+    html.esdm-vt-mobile .vt-mobile-body {
+        view-transition-name: esdm-mobile-body;
+    }
+}
+
+::view-transition-group(esdm-mobile-navy) {
+    z-index: 1;
+    animation-duration: 360ms;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+::view-transition-old(esdm-mobile-navy),
+::view-transition-new(esdm-mobile-navy) {
+    height: 100%;
+    width: 100%;
+}
+
+::view-transition-old(esdm-mobile-navy):only-child {
+    animation: esdm-vt-navy-slide-up 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+::view-transition-group(esdm-login-card),
+::view-transition-group(esdm-mobile-hero-content),
+::view-transition-group(esdm-mobile-body) {
+    z-index: 2;
+}
+
+::view-transition-group(esdm-mobile-topbar) {
+    z-index: 3;
+}
+
+::view-transition-old(esdm-login-card):only-child {
+    animation: esdm-vt-fade-up-out 220ms ease-out both;
+}
+
+::view-transition-new(esdm-mobile-topbar):only-child {
+    animation: esdm-vt-fade-in 240ms ease-out both;
+}
+
+::view-transition-new(esdm-mobile-hero-content):only-child {
+    animation: esdm-vt-rise-in 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+::view-transition-new(esdm-mobile-body):only-child {
+    animation: esdm-vt-rise-in 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+::view-transition-old(root) {
+    animation: esdm-vt-fade-out 220ms ease-out both;
+}
+
+::view-transition-new(root) {
+    animation: esdm-vt-fade-in 260ms ease-out both;
+}
+
+@keyframes esdm-vt-navy-slide-up {
+    from {
+        transform: translateY(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateY(-100%);
+        opacity: 0.9;
+    }
+}
+
+@keyframes esdm-vt-fade-up-out {
+    from {
+        transform: translateY(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateY(-12px);
+        opacity: 0;
+    }
+}
+
+@keyframes esdm-vt-rise-in {
+    from {
+        transform: translateY(16px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+@keyframes esdm-vt-fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes esdm-vt-fade-out {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
+    ::view-transition-group(*),
+    ::view-transition-old(*),
+    ::view-transition-new(*) {
+        animation: none !important;
+    }
+
     *,
     *::before,
     *::after {

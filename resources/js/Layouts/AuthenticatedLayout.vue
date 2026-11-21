@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { Link, usePage, router } from '@inertiajs/vue3';
 import Avatar from 'primevue/avatar';
 import Button from 'primevue/button';
@@ -125,7 +125,6 @@ const openGroups = ref({
     operasional: true,
     absensi: true,
     rekapitulasi: true,
-    payroll: false,
     sistem: false,
     // Employee Groups
     layananMandiri: true,
@@ -149,13 +148,6 @@ const userMenuItems = computed(() => {
             icon: 'pi pi-user',
             command: () => {
                 router.visit('/forms');
-            },
-        },
-        {
-            label: 'Slip Gaji Saya',
-            icon: 'pi pi-receipt',
-            command: () => {
-                router.visit('/datatable');
             },
         },
         {
@@ -266,10 +258,10 @@ const searchMenus = computed(() => {
         { label: 'Statistik', url: '/charts', category: 'Kepegawaian', icon: 'pi pi-chart-bar' },
         { label: 'Struktur Organisasi & Jabatan', url: '/components', category: 'Kepegawaian', icon: 'pi pi-sitemap' },
         { label: 'Laporan Absensi Karyawan', url: '/absensi/laporan', category: 'Operasional', icon: 'pi pi-calendar' },
+        { label: 'Laporan Lengkap Lembur', url: '/lembur/laporan', category: 'Operasional', icon: 'pi pi-clock' },
         { label: 'Rekapitulasi Presensi & Kehadiran', url: '/charts', category: 'Operasional', icon: 'pi pi-calendar-check' },
         { label: 'Verifikasi & Approval Lembur (SPL)', url: '/forms', category: 'Operasional', icon: 'pi pi-clock' },
         { label: 'Permohonan & Persetujuan Cuti', url: '/forms', category: 'Operasional', icon: 'pi pi-calendar-minus' },
-        { label: 'Slip Gaji & Komponen Payroll', url: '/datatable', category: 'Penggajian', icon: 'pi pi-receipt' },
         { label: 'Konfigurasi Shift Kerja KFPB', url: '/components', category: 'Pengaturan', icon: 'pi pi-sliders-h' },
     ];
     if (!searchQuery.value) return list;
@@ -321,6 +313,45 @@ const handleClickOutside = (e) => {
 
 let desktopMediaQuery = null;
 let removeNavigateListener = null;
+let heroSentinelObserver = null;
+
+const isMobileNavyHeroPage = computed(() => page.component === 'Employee/Dashboard');
+const isMobileHeaderScrolled = ref(false);
+const mobileHeroSentinelRef = ref(null);
+const isMobileNavyTopbar = computed(
+    () => isMobileNavyHeroPage.value && !isDesktopViewport.value && !isMobileHeaderScrolled.value
+);
+
+const teardownHeroObserver = () => {
+    heroSentinelObserver?.disconnect();
+    heroSentinelObserver = null;
+};
+
+const setupHeroObserver = () => {
+    teardownHeroObserver();
+
+    if (!isMobileNavyHeroPage.value || isDesktopViewport.value || !mobileHeroSentinelRef.value) {
+        isMobileHeaderScrolled.value = false;
+        return;
+    }
+
+    isMobileHeaderScrolled.value = window.scrollY >= 96;
+    heroSentinelObserver = new IntersectionObserver(
+        ([entry]) => {
+            isMobileHeaderScrolled.value = !entry.isIntersecting;
+        },
+        { rootMargin: '-60px 0px 0px 0px', threshold: 0 }
+    );
+    heroSentinelObserver.observe(mobileHeroSentinelRef.value);
+};
+
+watch(
+    [isMobileNavyHeroPage, isDesktopViewport, mobileHeroSentinelRef],
+    () => {
+        setupHeroObserver();
+    },
+    { flush: 'post' }
+);
 
 const handleViewportChange = (e) => {
     isDesktopViewport.value = e.matches;
@@ -340,13 +371,16 @@ onMounted(() => {
         mobileSidebarOpen.value = false;
         searchModalOpen.value = false;
         showNotifications.value = false;
+        isMobileHeaderScrolled.value = false;
     });
 
+    nextTick(() => setupHeroObserver());
     window.addEventListener('keydown', handleKeydown);
     document.addEventListener('click', handleClickOutside);
 });
 
 onUnmounted(() => {
+    teardownHeroObserver();
     desktopMediaQuery?.removeEventListener('change', handleViewportChange);
     removeNavigateListener?.();
     window.removeEventListener('keydown', handleKeydown);
@@ -671,15 +705,6 @@ const isCurrentUrl = (path) => {
                                             <span class="size-1.5 rounded-full bg-current shrink-0" />
                                             <span>Data Berkas</span>
                                         </div>
-                                    </Link>
-                                </li>
-                                <li>
-                                    <Link
-                                        href="/components"
-                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
-                                    >
-                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Data Payroll</span>
                                     </Link>
                                 </li>
                             </ul>
@@ -1026,79 +1051,6 @@ const isCurrentUrl = (path) => {
                     </div>
                     <div>
                         <div class="px-3 mb-1.5 text-[11px] font-bold tracking-wider text-slate-600 uppercase">
-                            Kompensasi & Gaji
-                        </div>
-                        <div class="space-y-1">
-                            <button
-                                type="button"
-                                :aria-expanded="String(openGroups.payroll)"
-                                class="w-full flex items-center justify-between px-3.5 py-2.5 min-h-11 rounded-lg text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-colors duration-150 font-medium cursor-pointer"
-                                @click="toggleGroup('payroll')"
-                            >
-                                <div class="flex items-center gap-3">
-                                    <i class="pi pi-wallet text-base text-slate-600" aria-hidden="true" />
-                                    <span>Penggajian (Payroll)</span>
-                                </div>
-                                <i
-                                    aria-hidden="true"
-                                    :class="[
-                                        'pi pi-chevron-right text-xs text-slate-600 transition-transform duration-200',
-                                        openGroups.payroll ? 'rotate-90' : '',
-                                    ]"
-                                />
-                            </button>
-
-                            <ul v-show="openGroups.payroll" class="pl-8 pr-1 space-y-1 pt-0.5">
-                                <li>
-                                    <Link
-                                        href="/components"
-                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
-                                    >
-                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Gaji Pokok</span>
-                                    </Link>
-                                </li>
-                                <li>
-                                    <Link
-                                        href="/charts"
-                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
-                                    >
-                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Lembur</span>
-                                    </Link>
-                                </li>
-                                <li>
-                                    <Link
-                                        href="/forms"
-                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
-                                    >
-                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Potongan</span>
-                                    </Link>
-                                </li>
-                                <li>
-                                    <Link
-                                        href="/datatable"
-                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
-                                    >
-                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Pajak</span>
-                                    </Link>
-                                </li>
-                                <li>
-                                    <Link
-                                        href="/datatable"
-                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
-                                    >
-                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Proses Payroll</span>
-                                    </Link>
-                                </li>
-                            </ul>
-                        </div>
-                    </div>
-                    <div>
-                        <div class="px-3 mb-1.5 text-[11px] font-bold tracking-wider text-slate-600 uppercase">
                             Sistem & Konfigurasi
                         </div>
                         <div class="space-y-1">
@@ -1270,6 +1222,21 @@ const isCurrentUrl = (path) => {
                                 </li>
                                 <li>
                                     <Link
+                                        href="/lembur/laporan"
+                                        :aria-current="isCurrentUrl('/lembur/laporan') ? 'page' : undefined"
+                                        :class="[
+                                            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                                            isCurrentUrl('/lembur/laporan')
+                                                ? 'bg-[#005BAC]/10 text-[#005BAC] font-semibold'
+                                                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                                        ]"
+                                    >
+                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
+                                        <span>Laporan Lengkap Lembur</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
                                         href="/izin-keluar"
                                         :class="[
                                             'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
@@ -1297,15 +1264,6 @@ const isCurrentUrl = (path) => {
                                             <span>Scanner QR Satpam</span>
                                             <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800">POS</span>
                                         </div>
-                                    </Link>
-                                </li>
-                                <li>
-                                    <Link
-                                        href="/datatable"
-                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 transition-colors"
-                                    >
-                                        <span class="size-1.5 rounded-full bg-current shrink-0" />
-                                        <span>Slip Gaji Saya (Privat)</span>
                                     </Link>
                                 </li>
                             </ul>
@@ -1404,9 +1362,25 @@ const isCurrentUrl = (path) => {
             </div>
         </aside>
         <div class="flex-1 flex flex-col min-w-0 lg:pl-68 transition-all">
-            <header class="sticky top-0 z-30 bg-[#f5f5f9] pt-2.5 sm:pt-3 pb-2 px-4 sm:px-6">
+            <header
+                :class="[
+                    'sticky top-0 z-30',
+                    isMobileNavyHeroPage
+                        ? [
+                            'px-4 sm:px-6 py-2 border-b transition-[background-color,border-color,box-shadow] duration-200 motion-reduce:transition-none lg:bg-[#f5f5f9] lg:border-b-0 lg:shadow-none lg:pt-3 lg:pb-2 lg:px-6',
+                            isMobileNavyTopbar
+                                ? 'vt-mobile-topbar bg-[#0b1c34] border-transparent shadow-none'
+                                : 'bg-white border-slate-200 shadow-sm',
+                        ]
+                        : 'bg-[#f5f5f9] pt-2.5 sm:pt-3 pb-2 px-4 sm:px-6',
+                ]"
+            >
                 <div
-                    class="bg-white rounded-xl border border-slate-200 shadow-[0_2px_6px_0_rgba(67,89,113,0.06)] px-3 sm:px-4 py-2 flex items-center justify-between gap-3"
+                    :class="
+                        isMobileNavyHeroPage
+                            ? 'flex items-center justify-between gap-3 lg:bg-white lg:rounded-xl lg:border lg:border-slate-200 lg:shadow-[0_2px_6px_0_rgba(67,89,113,0.06)] lg:px-4 lg:py-2'
+                            : 'bg-white rounded-xl border border-slate-200 shadow-[0_2px_6px_0_rgba(67,89,113,0.06)] px-3 sm:px-4 py-2 flex items-center justify-between gap-3'
+                    "
                 >
                     <div class="flex items-center gap-3 min-w-0">
                         <button
@@ -1415,13 +1389,40 @@ const isCurrentUrl = (path) => {
                             aria-label="Buka menu navigasi"
                             :aria-expanded="String(mobileSidebarOpen)"
                             aria-controls="main-sidebar"
-                            class="lg:hidden min-w-11 min-h-11 inline-flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 cursor-pointer shrink-0"
+                            :class="[
+                                'lg:hidden min-w-11 min-h-11 inline-flex items-center justify-center rounded-lg transition-colors motion-reduce:transition-none cursor-pointer shrink-0',
+                                isMobileNavyTopbar
+                                    ? 'text-white hover:bg-white/10 focus-visible:!outline-white'
+                                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+                            ]"
                             @click="toggleMobileSidebar"
                         >
                             <i class="pi pi-bars text-lg" aria-hidden="true" />
                         </button>
 
-                        <div class="min-w-0">
+                        <div v-if="isMobileNavyHeroPage" class="lg:hidden grid items-center min-w-0">
+                            <span
+                                :aria-hidden="String(!isMobileNavyTopbar)"
+                                :class="[
+                                    'col-start-1 row-start-1 text-sm font-bold text-white tracking-tight truncate transition-all duration-200 motion-reduce:transition-none',
+                                    isMobileNavyTopbar ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-1 pointer-events-none',
+                                ]"
+                            >
+                                E-SDM KFPB
+                            </span>
+                            <div
+                                :aria-hidden="String(isMobileNavyTopbar)"
+                                :class="[
+                                    'col-start-1 row-start-1 min-w-0 transition-all duration-200 motion-reduce:transition-none',
+                                    isMobileNavyTopbar ? 'opacity-0 translate-y-1 pointer-events-none' : 'opacity-100 translate-y-0',
+                                ]"
+                            >
+                                <span class="block text-[11px] font-medium text-slate-600 leading-none">E-SDM</span>
+                                <span class="block text-sm font-bold text-slate-900 tracking-tight truncate leading-tight mt-0.5">{{ displayTitle }}</span>
+                            </div>
+                        </div>
+
+                        <div :class="['min-w-0', isMobileNavyHeroPage ? 'hidden lg:block' : '']">
                             <div class="flex items-center gap-1.5 text-xs text-slate-600">
                                 <Link href="/" class="hover:text-slate-900 transition-colors flex items-center gap-1 shrink-0 whitespace-nowrap">
                                     <i class="pi pi-home text-xs shrink-0" aria-hidden="true" />
@@ -1440,10 +1441,12 @@ const isCurrentUrl = (path) => {
                             <button
                                 type="button"
                                 :class="[
-                                    'min-h-11 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition-all cursor-pointer',
-                                    portalMode === 'admin'
-                                        ? 'bg-blue-50 text-[#005BAC] border-blue-200 hover:bg-blue-100'
-                                        : 'bg-orange-50 text-[#c2410c] border-orange-200 hover:bg-orange-100',
+                                    'min-h-11 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition-all motion-reduce:transition-none cursor-pointer',
+                                    isMobileNavyTopbar
+                                        ? 'bg-[#162b4a] text-white border-[#6b8bb8] hover:bg-[#1e375e] focus-visible:!outline-white'
+                                        : portalMode === 'admin'
+                                            ? 'bg-blue-50 text-[#005BAC] border-blue-200 hover:bg-blue-100'
+                                            : 'bg-orange-50 text-[#c2410c] border-orange-200 hover:bg-orange-100',
                                 ]"
                                 @click="setPortalMode(portalMode === 'admin' ? 'employee' : 'admin')"
                                 :title="portalMode === 'admin' ? 'Klik untuk berpindah ke tampilan Layanan Pegawai' : 'Klik untuk berpindah ke tampilan Admin HRD'"
@@ -1456,12 +1459,17 @@ const isCurrentUrl = (path) => {
                         <button
                             ref="searchTriggerRef"
                             type="button"
-                            class="hidden sm:flex items-center gap-2 min-w-11 min-h-11 px-3 py-1.5 rounded-lg bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 text-xs border border-slate-200 transition-colors cursor-pointer shrink-0"
+                            :class="[
+                                'hidden sm:flex items-center gap-2 min-w-11 min-h-11 px-3 py-1.5 rounded-lg text-xs border transition-colors motion-reduce:transition-none cursor-pointer shrink-0',
+                                isMobileNavyTopbar
+                                    ? 'bg-[#162b4a] text-white border-[#6b8bb8] hover:bg-[#1e375e] focus-visible:!outline-white'
+                                    : 'bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 border-slate-200',
+                            ]"
                             @click="openSearchModal"
                         >
                             <i class="pi pi-search text-xs" aria-hidden="true" />
-                            <span class="hidden lg:inline text-slate-700 font-medium">Cari menu &amp; pegawai...</span>
-                            <span class="lg:hidden text-slate-700 font-medium">Cari</span>
+                            <span :class="['hidden lg:inline font-medium', isMobileNavyTopbar ? 'text-white' : 'text-slate-700']">Cari menu &amp; pegawai...</span>
+                            <span :class="['lg:hidden font-medium', isMobileNavyTopbar ? 'text-white' : 'text-slate-700']">Cari</span>
                             <kbd class="hidden lg:inline-block ml-1 font-mono text-[11px] bg-white px-1.5 py-0.5 rounded border border-slate-300 text-slate-600">Ctrl K</kbd>
                         </button>
                         <div ref="notificationWrapper" class="relative">
@@ -1470,14 +1478,22 @@ const isCurrentUrl = (path) => {
                                 :aria-label="notificationCount > 0 ? `Pusat pemberitahuan, ${notificationCount > 99 ? '99+' : notificationCount} belum dibaca` : 'Pusat pemberitahuan'"
                                 :aria-expanded="String(showNotifications)"
                                 aria-controls="notifications-popover"
-                                class="relative min-w-11 min-h-11 inline-flex items-center justify-center rounded-xl text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer"
+                                :class="[
+                                    'relative min-w-11 min-h-11 inline-flex items-center justify-center rounded-xl transition-colors motion-reduce:transition-none cursor-pointer',
+                                    isMobileNavyTopbar
+                                        ? 'text-white hover:bg-white/10 focus-visible:!outline-white'
+                                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+                                ]"
                                 @click="showNotifications = !showNotifications"
                             >
                                 <i class="pi pi-bell text-lg" aria-hidden="true" />
                                 <span
                                     v-if="notificationCount > 0"
                                     aria-hidden="true"
-                                    class="absolute top-1 right-1 min-w-4 h-4 px-1 rounded-full bg-rose-700 text-white font-bold text-[10px] flex items-center justify-center ring-2 ring-white shadow-xs"
+                                    :class="[
+                                        'absolute top-1 right-1 min-w-4 h-4 px-1 rounded-full bg-rose-700 text-white font-bold text-[10px] flex items-center justify-center ring-2 shadow-xs',
+                                        isMobileNavyTopbar ? 'ring-[#0b1c34]' : 'ring-white',
+                                    ]"
                                 >
                                     {{ notificationCount > 99 ? '99+' : notificationCount }}
                                 </span>
@@ -1555,10 +1571,13 @@ const isCurrentUrl = (path) => {
                                 </div>
                             </div>
                         </div>
-                        <div class="flex items-center pl-2 border-l border-slate-200">
+                        <div :class="['flex items-center pl-2 border-l transition-colors motion-reduce:transition-none', isMobileNavyTopbar ? 'border-white/20' : 'border-slate-200']">
                             <button
                                 type="button"
-                                class="min-w-11 min-h-11 px-1.5 flex items-center justify-center gap-2.5 rounded-xl hover:bg-slate-100 transition-colors text-left cursor-pointer"
+                                :class="[
+                                    'min-w-11 min-h-11 px-1.5 flex items-center justify-center gap-2.5 rounded-xl transition-colors motion-reduce:transition-none text-left cursor-pointer',
+                                    isMobileNavyTopbar ? 'hover:bg-white/10 focus-visible:!outline-white' : 'hover:bg-slate-100',
+                                ]"
                                 @click="toggleUserMenu"
                                 aria-haspopup="true"
                                 aria-controls="user_menu"
@@ -1567,18 +1586,21 @@ const isCurrentUrl = (path) => {
                                     :label="currentUser.avatarInitials"
                                     shape="circle"
                                     aria-hidden="true"
-                                    class="!text-white font-bold text-xs size-8 shadow-xs !bg-[#005BAC]"
+                                    :class="[
+                                        '!text-white font-bold text-xs size-8 shadow-xs !bg-[#005BAC]',
+                                        isMobileNavyTopbar ? 'ring-2 ring-white/75' : '',
+                                    ]"
                                 />
                                 <span class="sr-only sm:hidden">Menu akun {{ currentUser.displayName }}</span>
                                 <div class="hidden sm:block text-left">
-                                    <div class="text-xs font-bold text-slate-800 leading-tight">
+                                    <div :class="['text-xs font-bold leading-tight', isMobileNavyTopbar ? 'text-white' : 'text-slate-800']">
                                         {{ currentUser.displayName }}
                                     </div>
-                                    <div class="text-[11px] font-medium text-slate-600 leading-tight capitalize">
+                                    <div :class="['text-[11px] font-medium leading-tight capitalize', isMobileNavyTopbar ? 'text-blue-200' : 'text-slate-600']">
                                         {{ currentUser.positionName }}
                                     </div>
                                 </div>
-                                <i class="pi pi-chevron-down text-xs text-slate-600 hidden sm:block ml-0.5" aria-hidden="true" />
+                                <i :class="['pi pi-chevron-down text-xs hidden sm:block ml-0.5', isMobileNavyTopbar ? 'text-blue-200' : 'text-slate-600']" aria-hidden="true" />
                             </button>
 
                             <Menu
@@ -1592,7 +1614,20 @@ const isCurrentUrl = (path) => {
                     </div>
                 </div>
             </header>
-            <main id="main-content" tabindex="-1" class="flex-1 px-4 sm:px-6 py-4 focus:outline-none">
+            <main
+                id="main-content"
+                tabindex="-1"
+                :class="[
+                    'flex-1 scroll-mt-20 focus:outline-none',
+                    isMobileNavyHeroPage ? 'relative px-0 pt-0 pb-4 lg:px-6 lg:py-4' : 'px-4 sm:px-6 py-4',
+                ]"
+            >
+                <div
+                    v-if="isMobileNavyHeroPage"
+                    ref="mobileHeroSentinelRef"
+                    aria-hidden="true"
+                    class="lg:hidden absolute top-24 left-0 w-px h-px pointer-events-none"
+                />
                 <slot />
             </main>
             <footer class="px-4 sm:px-6 py-4 border-t border-slate-200 text-xs text-slate-600 flex flex-col sm:flex-row items-center justify-between gap-2.5 mt-auto bg-white shrink-0 text-center sm:text-left">
