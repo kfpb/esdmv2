@@ -33,7 +33,7 @@ class LoginController extends Controller
             'login' => ['required', 'string'],
             'password' => ['required', 'string'],
         ], [
-            'login.required' => 'NIP, Username, atau Email wajib diisi.',
+            'login.required' => 'NIP / Username wajib diisi.',
             'password.required' => 'Kata sandi wajib diisi.',
         ]);
 
@@ -50,7 +50,7 @@ class LoginController extends Controller
         // Validasi keberadaan akun dan kecocokan hash Bcrypt password
         if (!$user || !Hash::check($password, $user->password)) {
             throw ValidationException::withMessages([
-                'login' => 'NIP/Password yang Anda masukkan tidak sesuai dengan catatan sistem.',
+                'login' => 'NIP / Username atau kata sandi tidak sesuai.',
             ]);
         }
 

@@ -1,8 +1,9 @@
 <script setup>
-import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { ref, computed, nextTick } from 'vue';
 import { useForm, Head } from '@inertiajs/vue3';
 import Password from 'primevue/password';
 import Checkbox from 'primevue/checkbox';
+import Dialog from 'primevue/dialog';
 
 const props = defineProps({
     status: {
@@ -17,15 +18,61 @@ const form = useForm({
     remember: false,
 });
 
+const clientErrors = ref({
+    login: '',
+    password: '',
+});
+
+const capsLockOn = ref(false);
+const showHelpModal = ref(false);
+const authErrorAttempt = ref(0);
+const clientErrorAttempt = ref(0);
+
 const loginInputRef = ref(null);
 const passwordToggleRef = ref(null);
 const forgotPasswordBtnRef = ref(null);
-const helpModalRef = ref(null);
-const helpModalCloseBtnRef = ref(null);
-const isHttps = ref(false);
+const authErrorRef = ref(null);
 
-// Modal state for Lupa Kata Sandi / Helpdesk
-const showHelpModal = ref(false);
+const serverAuthError = computed(() => form.errors.login || '');
+const loginFieldError = computed(() => clientErrors.value.login);
+const passwordFieldError = computed(() => clientErrors.value.password || form.errors.password || '');
+
+const hasCredentialMismatchError = computed(() => {
+    return Boolean(serverAuthError.value) && !serverAuthError.value.toLowerCase().includes('dinonaktifkan');
+});
+
+const loginDescribedBy = computed(() => {
+    if (loginFieldError.value) return 'login-field-error';
+    if (hasCredentialMismatchError.value) return 'auth-error';
+    return undefined;
+});
+
+const passwordDescribedBy = computed(() => {
+    const ids = [];
+    if (passwordFieldError.value) ids.push('password-field-error');
+    if (capsLockOn.value) ids.push('caps-lock-hint');
+    if (!passwordFieldError.value && hasCredentialMismatchError.value) ids.push('auth-error');
+    return ids.length ? ids.join(' ') : undefined;
+});
+
+const clearLoginError = () => {
+    clientErrors.value.login = '';
+    form.clearErrors('login');
+};
+
+const clearPasswordError = () => {
+    clientErrors.value.password = '';
+    form.clearErrors('password');
+    if (hasCredentialMismatchError.value) {
+        form.clearErrors('login');
+    }
+};
+
+const handleCapsLock = (event) => {
+    if (typeof event.getModifierState === 'function') {
+        capsLockOn.value = event.getModifierState('CapsLock');
+    }
+};
 
 const handlePasswordToggle = (toggleCallback) => {
     const keepFocus = document.activeElement === passwordToggleRef.value;
@@ -37,87 +84,27 @@ const handlePasswordToggle = (toggleCallback) => {
     }
 };
 
-const openHelpModal = () => {
-    showHelpModal.value = true;
-    nextTick(() => {
-        helpModalCloseBtnRef.value?.focus();
-    });
-};
-
-const closeHelpModal = () => {
-    showHelpModal.value = false;
+const handleHelpDialogHide = () => {
     nextTick(() => {
         forgotPasswordBtnRef.value?.focus();
     });
 };
 
-const handleHelpModalKeydown = (event) => {
-    if (!showHelpModal.value) return;
-
-    if (event.key === 'Escape') {
-        event.preventDefault();
-        closeHelpModal();
-        return;
-    }
-
-    if (event.key !== 'Tab' || !helpModalRef.value) return;
-
-    const focusable = Array.from(
-        helpModalRef.value.querySelectorAll(
-            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ),
-    );
-
-    if (focusable.length === 0) {
-        event.preventDefault();
-        return;
-    }
-
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-
-    if (event.shiftKey) {
-        if (document.activeElement === first || !helpModalRef.value.contains(document.activeElement)) {
-            event.preventDefault();
-            last.focus();
-        }
-    } else if (document.activeElement === last || !helpModalRef.value.contains(document.activeElement)) {
-        event.preventDefault();
-        first.focus();
-    }
-};
-
-watch(showHelpModal, (isOpen) => {
-    if (isOpen) {
-        document.addEventListener('keydown', handleHelpModalKeydown);
-        document.body.style.overflow = 'hidden';
-    } else {
-        document.removeEventListener('keydown', handleHelpModalKeydown);
-        document.body.style.overflow = '';
-    }
-});
-
-onMounted(() => {
-    isHttps.value = window.location.protocol === 'https:';
-});
-
-onBeforeUnmount(() => {
-    document.removeEventListener('keydown', handleHelpModalKeydown);
-    document.body.style.overflow = '';
-});
-
 const submit = () => {
+    clientErrors.value = { login: '', password: '' };
     form.clearErrors();
+
     const trimmedLogin = form.login.trim();
 
     if (!trimmedLogin) {
-        form.setError('login', 'NIP / Username wajib diisi.');
+        clientErrors.value.login = 'NIP / Username wajib diisi.';
     }
     if (!form.password) {
-        form.setError('password', 'Kata sandi wajib diisi.');
+        clientErrors.value.password = 'Kata sandi wajib diisi.';
     }
 
     if (!trimmedLogin || !form.password) {
+        clientErrorAttempt.value += 1;
         nextTick(() => {
             if (!trimmedLogin) {
                 loginInputRef.value?.focus();
@@ -128,387 +115,379 @@ const submit = () => {
         return;
     }
 
+    const canUseMobileViewTransition =
+        typeof window !== 'undefined' &&
+        typeof document !== 'undefined' &&
+        typeof document.startViewTransition === 'function' &&
+        window.matchMedia('(max-width: 1023px)').matches &&
+        !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    let transitionStarted = false;
+
+    if (canUseMobileViewTransition) {
+        document.documentElement.classList.add('esdm-vt-mobile');
+    }
+
     form.post('/login', {
+        viewTransition: canUseMobileViewTransition
+            ? (transition) => {
+                  transitionStarted = true;
+                  transition.finished.finally(() => {
+                      document.documentElement.classList.remove('esdm-vt-mobile');
+                      document.getElementById('main-content')?.focus({ preventScroll: true });
+                  });
+              }
+            : false,
+        onSuccess: () => {
+            if (!transitionStarted) {
+                nextTick(() => {
+                    document.getElementById('main-content')?.focus({ preventScroll: true });
+                });
+            }
+        },
+        onError: () => {
+            authErrorAttempt.value += 1;
+            nextTick(() => {
+                if (hasCredentialMismatchError.value) {
+                    document.getElementById('password')?.focus();
+                } else {
+                    authErrorRef.value?.focus();
+                }
+            });
+        },
         onFinish: () => {
             form.reset('password');
+            if (!transitionStarted) {
+                document.documentElement.classList.remove('esdm-vt-mobile');
+            }
         },
     });
 };
 </script>
 
 <template>
-    <Head title="E-SDM KFPB" />
+    <Head title="Masuk E-SDM KFPB" />
 
-    <div class="min-h-screen min-h-[100dvh] w-full flex flex-col lg:flex-row bg-[#eef2f6] lg:bg-[#f5f5f9] font-sans antialiased text-slate-700">
-
-        <!-- =============================================================== -->
-        <!-- LEFT PANEL: Enterprise Showcase & Branding (Desktop only)       -->
-        <!-- =============================================================== -->
-        <aside aria-label="Informasi Portal E-SDM" class="hidden lg:flex lg:w-1/2 xl:w-7/12 relative bg-[#0b1c34] text-white flex-col justify-between p-12 overflow-hidden select-none border-r border-[#172c4d]">
-
-            <!-- Top Brand Header -->
-            <div class="relative z-10 flex items-center gap-3.5">
-                <div class="size-11 rounded-2xl bg-white border border-white/30 flex items-center justify-center shadow-sm p-1.5 shrink-0">
-                    <img src="/images/esdm-icon.png" alt="eSDM Icon" width="96" height="96" class="size-7 object-contain" />
-                </div>
-                <div>
-                    <div class="flex items-center gap-2">
-                        <span class="text-xl font-black tracking-tight text-white flex items-baseline leading-none">
-                            <span class="text-[#F37021] font-extrabold italic mr-0.5">e</span>SDM
-                        </span>
-                        <span class="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-[#c2410c] text-white shadow-xs">
-                            KFPB
-                        </span>
+    <div class="min-h-screen min-h-[100dvh] w-full flex flex-col lg:flex-row bg-[#f5f5f9] font-sans antialiased text-slate-700 overflow-x-clip">
+        <aside aria-label="Informasi Portal E-SDM" class="hidden lg:flex lg:w-1/2 bg-[#0b1c34] text-white flex-col p-10 xl:p-12 select-none border-r border-[#172c4d]">
+            <div class="w-full max-w-md mx-auto flex-1 flex flex-col justify-between">
+                <div class="flex items-center gap-3.5">
+                    <div class="size-11 rounded-xl bg-white border border-white/25 flex items-center justify-center p-1.5 shrink-0">
+                        <img src="/images/esdm-icon.png" alt="Logo E-SDM KFPB" width="96" height="96" fetchpriority="high" class="size-7 object-contain" />
                     </div>
-                    <p class="text-xs text-blue-200/80 font-medium mt-0.5">
-                        PT Kimia Farma Plant Banjaran
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xl font-bold tracking-tight text-white leading-none">
+                                E-SDM KFPB
+                            </span>
+                            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#c2410c] text-white leading-none">
+                                v2.0
+                            </span>
+                        </div>
+                        <p class="text-xs text-blue-200 font-medium mt-1">
+                            PT Kimia Farma Plant Banjaran
+                        </p>
+                    </div>
+                </div>
+
+                <div class="my-auto py-8">
+                    <p class="text-2xl xl:text-3xl font-bold text-white leading-snug tracking-tight">
+                        Portal Presensi, Izin, dan Lembur Pegawai.
+                    </p>
+                    <p class="text-sm text-blue-100/90 leading-relaxed mt-3">
+                        Layanan kepegawaian mandiri dan persetujuan operasional Plant Banjaran.
                     </p>
                 </div>
-            </div>
 
-            <!-- Middle Value Propositions -->
-            <div class="relative z-10 my-auto py-8 max-w-xl">
-
-                <p class="text-3xl xl:text-4xl font-extrabold text-white leading-tight tracking-tight mb-4">
-                    Kelola Presensi, Izin, Lembur, dan Karir dalam Satu Portal.
+                <p class="pt-6 border-t border-white/10 text-xs text-blue-200/80">
+                    Akses internal pegawai dan administrator SDM.
                 </p>
-
-                <p class="text-sm xl:text-base text-blue-100/80 leading-relaxed mb-8">
-                    Efisiensi dan transparansi manajemen kepegawaian modern untuk seluruh staf dan unit kerja di fasilitas manufaktur farmasi Plant Banjaran.
-                </p>
-            </div>
-
-            <!-- Bottom Operational Info -->
-            <div class="relative z-10 pt-6 border-t border-white/10 flex items-center justify-between text-xs text-blue-200/80">
-                <div v-if="isHttps" class="flex items-center gap-1.5 text-[11px]">
-                    <i class="pi pi-lock text-[10px] text-emerald-300" aria-hidden="true" />
-                    <span>Koneksi Terenkripsi (HTTPS)</span>
-                </div>
-                <div v-else class="text-[11px]">
-                    <span>Portal Internal Kepegawaian KFPB</span>
-                </div>
             </div>
         </aside>
 
-        <!-- =============================================================== -->
-        <!-- RIGHT PANEL: Authentic Responsive Login Form                    -->
-        <!-- =============================================================== -->
-        <div class="flex-1 w-full lg:w-1/2 xl:w-5/12 flex flex-col lg:min-h-screen lg:overflow-y-auto">
+        <div class="flex-1 w-full lg:w-1/2 lg:relative flex flex-col bg-[#f5f5f9]">
+            <div class="relative flex-1 flex flex-col justify-center px-4 pt-8 pb-6 sm:px-8 sm:py-10 lg:px-12 lg:py-16">
+                <div
+                    aria-hidden="true"
+                    class="vt-mobile-navy lg:hidden absolute inset-x-0 top-0 h-[56%] min-h-[240px] bg-[#0b1c34] rounded-b-[48px] sm:rounded-b-[64px] pointer-events-none"
+                />
 
-            <!-- Mobile / Tablet Hero Cover Backdrop (< 1024px) -->
-            <header class="lg:hidden bg-[#0b1c34] text-white px-5 pt-6 pb-16 sm:pt-10 sm:pb-24 text-center select-none shrink-0">
-                <div class="max-w-md mx-auto flex flex-col items-center">
-                    <div class="size-12 rounded-2xl bg-white border border-white/30 shadow-xs flex items-center justify-center p-2 mb-2.5">
-                        <img src="/images/esdm-icon.png" alt="eSDM Icon" width="96" height="96" class="size-8 object-contain" />
-                    </div>
-                    <div class="flex items-center justify-center gap-2">
-                        <span class="text-2xl font-black tracking-tight text-white flex items-baseline leading-none">
-                            <span class="text-[#F37021] font-extrabold italic mr-0.5">e</span>SDM
-                        </span>
-                        <span class="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-[#c2410c] text-white">
-                            KFPB
-                        </span>
-                    </div>
-                    <p class="text-xs text-blue-200 font-medium mt-1">
-                        PT Kimia Farma Plant Banjaran
-                    </p>
-                </div>
-            </header>
+                <div class="vt-login-card relative z-10 w-full max-w-[420px] mx-auto">
+                    <header class="lg:hidden text-center text-white mb-5 sm:mb-6 select-none">
+                        <div class="size-12 rounded-2xl bg-white border border-white/25 shadow-xs flex items-center justify-center p-2 mx-auto mb-2.5">
+                            <img src="/images/esdm-icon.png" alt="Logo E-SDM KFPB" width="96" height="96" fetchpriority="high" class="size-8 object-contain" />
+                        </div>
+                        <div class="flex items-center justify-center gap-2">
+                            <span class="text-xl font-bold tracking-tight text-white leading-none">
+                                E-SDM KFPB
+                            </span>
+                            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#c2410c] text-white leading-none">
+                                v2.0
+                            </span>
+                        </div>
+                        <p class="text-xs text-blue-200 font-medium mt-1">
+                            PT Kimia Farma Plant Banjaran
+                        </p>
+                    </header>
 
-            <div class="relative z-10 flex-1 flex flex-col justify-between px-4 pb-5 -mt-10 sm:px-8 sm:pb-6 sm:-mt-14 lg:mt-0 lg:p-12 xl:px-16 xl:py-8">
-
-                <!-- Login Form Container (Overlapping white card on mobile/tablet; open split panel on desktop) -->
-                <main class="w-full max-w-md mx-auto lg:my-auto bg-white border border-slate-200 rounded-2xl shadow-md p-5 sm:p-8 lg:bg-transparent lg:border-0 lg:rounded-none lg:shadow-none lg:p-0">
-
-                <!-- Welcome & Iconic Brand Header -->
-                <div class="mb-5 lg:mb-6">
-                    <!-- Brand Logo Signature Unit (Desktop split panel) -->
-                    <div class="hidden lg:flex items-center gap-3.5 mb-5 select-none">
-                        <div class="size-12 rounded-2xl bg-white border border-slate-300 shadow-xs flex items-center justify-center shrink-0 p-2">
-                            <img src="/images/esdm-icon.png" alt="eSDM Icon" width="96" height="96" class="size-8 object-contain" />
+                    <main class="w-full bg-white border border-slate-200/90 rounded-2xl shadow-md lg:shadow-xs p-6 sm:p-8">
+                        <div class="mb-6">
+                            <h1 class="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+                                Masuk ke Akun
+                            </h1>
+                            <p class="text-sm text-slate-600 mt-1">
+                                Gunakan NIP atau username Anda.
+                            </p>
                         </div>
 
-                        <div class="flex flex-col">
-                            <div class="flex items-center gap-2">
-                                <span class="text-3xl xl:text-4xl font-black tracking-tight text-[#005BAC] flex items-baseline leading-none">
-                                    <span class="text-[#c2410c] font-extrabold italic mr-0.5">e</span>SDM
-                                </span>
-                                <span class="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-[#c2410c] text-white shadow-xs">
-                                    KFPB
-                                </span>
+                        <div
+                            v-if="status"
+                            role="status"
+                            class="mb-5 p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2.5"
+                        >
+                            <i class="pi pi-check-circle text-base text-emerald-700 shrink-0" aria-hidden="true" />
+                            <span>{{ status }}</span>
+                        </div>
+
+                        <div
+                            v-if="serverAuthError"
+                            :key="authErrorAttempt"
+                            ref="authErrorRef"
+                            id="auth-error"
+                            role="alert"
+                            tabindex="-1"
+                            class="mb-5 p-3.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-800 text-xs flex items-start gap-2.5 animate-shake focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700"
+                        >
+                            <i class="pi pi-exclamation-triangle text-base text-rose-700 shrink-0 mt-0.5" aria-hidden="true" />
+                            <div class="leading-snug">
+                                <span class="font-bold block">Gagal Masuk</span>
+                                <span>{{ serverAuthError }}</span>
                             </div>
-                            <span class="text-[11px] font-medium text-slate-600 mt-1">
-                                Elektronik Sumber Daya Manusia - PT Kimia Farma Plant Banjaran
-                            </span>
                         </div>
-                    </div>
 
-                    <div class="pb-3.5 border-b border-slate-200 lg:pb-0 lg:border-b-0 lg:pt-3 lg:border-t lg:border-slate-300/80">
-                        <h1 class="text-lg sm:text-xl lg:text-base font-bold text-slate-800 tracking-tight">
-                            Masuk ke Portal Pegawai
-                        </h1>
-                        <p class="text-xs text-slate-600 mt-1 lg:hidden">
-                            Gunakan NIP 8 digit atau username akun E-SDM Anda.
-                        </p>
-                    </div>
-                </div>
+                        <form @submit.prevent="submit" novalidate :aria-busy="form.processing" class="space-y-4">
+                            <div>
+                                <label for="login" class="block text-xs font-semibold text-slate-700 mb-1.5">
+                                    NIP / Username
+                                </label>
+                                <input
+                                    ref="loginInputRef"
+                                    id="login"
+                                    name="login"
+                                    v-model="form.login"
+                                    type="text"
+                                    autocomplete="username"
+                                    autocapitalize="none"
+                                    autocorrect="off"
+                                    spellcheck="false"
+                                    enterkeyhint="next"
+                                    autofocus
+                                    required
+                                    :disabled="form.processing"
+                                    :aria-invalid="(loginFieldError || hasCredentialMismatchError) ? 'true' : 'false'"
+                                    :aria-describedby="loginDescribedBy"
+                                    placeholder="Masukkan NIP/Username"
+                                    @input="clearLoginError"
+                                    :class="[
+                                        'w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border text-base sm:text-sm text-slate-800 placeholder:text-slate-500 transition-colors motion-reduce:transition-none outline-none bg-white disabled:bg-slate-50 disabled:text-slate-500',
+                                        (loginFieldError || hasCredentialMismatchError)
+                                            ? 'border-rose-600 focus:border-rose-600 focus:ring-2 focus:ring-rose-200'
+                                            : 'border-[#75859c] hover:border-slate-600 focus:border-[#005BAC] focus:ring-2 focus:ring-[#005BAC]/20',
+                                    ]"
+                                />
+                                <p
+                                    v-if="loginFieldError"
+                                    :key="`login-err-${clientErrorAttempt}`"
+                                    id="login-field-error"
+                                    class="text-rose-700 text-xs mt-1.5 flex items-center gap-1.5 animate-error-in"
+                                >
+                                    <i class="pi pi-exclamation-circle text-xs shrink-0" aria-hidden="true" />
+                                    <span>{{ loginFieldError }}</span>
+                                </p>
+                            </div>
 
-                <!-- Session Flash Status (e.g. Password reset success) -->
-                <div
-                    v-if="status"
-                    role="status"
-                    class="mb-5 p-3.5 rounded-xl bg-emerald-50 border border-emerald-200/80 text-emerald-800 text-xs flex items-center gap-2.5"
-                >
-                    <i class="pi pi-check-circle text-base text-emerald-600 shrink-0" aria-hidden="true" />
-                    <span>{{ status }}</span>
-                </div>
-
-                <!-- Validation Error Alert -->
-                <div
-                    v-if="form.errors.login"
-                    id="login-error"
-                    role="alert"
-                    class="mb-5 p-3.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-800 text-xs flex items-start gap-2.5 animate-shake"
-                >
-                    <i class="pi pi-exclamation-triangle text-base text-rose-700 shrink-0 mt-0.5" aria-hidden="true" />
-                    <div class="leading-snug">
-                        <span class="font-bold block">Gagal Masuk:</span>
-                        <span>{{ form.errors.login }}</span>
-                    </div>
-                </div>
-
-                <!-- Form -->
-                <form @submit.prevent="submit" novalidate class="space-y-4">
-
-                    <!-- Input 1: NIP / Username / Email -->
-                    <div>
-                        <label for="login" class="block text-xs font-semibold text-slate-700 mb-1.5">
-                            NIP / Username
-                        </label>
-                        <div class="relative flex items-center">
-                            <span class="absolute left-3.5 text-slate-500 pointer-events-none">
-                                <i class="pi pi-user text-sm" aria-hidden="true" />
-                            </span>
-                            <input
-                                ref="loginInputRef"
-                                id="login"
-                                v-model="form.login"
-                                type="text"
-                                autocomplete="username"
-                                autofocus
-                                required
-                                :aria-invalid="Boolean(form.errors.login)"
-                                :aria-describedby="form.errors.login ? 'login-error' : undefined"
-                                placeholder="Masukkan NIP / Username"
-                                @input="form.clearErrors('login')"
-                                :class="[
-                                    'w-full min-h-[44px] pl-10 pr-3.5 py-2.5 rounded-xl border text-base sm:text-sm text-slate-800 placeholder:text-slate-500 transition-all motion-reduce:transition-none outline-none bg-white',
-                                    form.errors.login
-                                        ? 'border-rose-600 focus:border-rose-600 focus:ring-2 focus:ring-rose-200'
-                                        : 'border-[#75859c] hover:border-slate-600 focus:border-[#005BAC] focus:ring-2 focus:ring-[#005BAC]/20',
-                                ]"
-                            />
-                        </div>
-                    </div>
-
-                    <!-- Input 2: Kata Sandi (Password) -->
-                    <div>
-                        <label for="password" class="block text-xs font-semibold text-slate-700 mb-1.5">
-                            Kata Sandi
-                        </label>
-                        <div class="w-full">
-                            <Password
-                                inputId="password"
-                                v-model="form.password"
-                                :feedback="false"
-                                promptLabel="Masukkan kata sandi"
-                                toggleMask
-                                :invalid="Boolean(form.errors.password)"
-                                class="w-full"
-                                :inputClass="[
-                                    'w-full !min-h-[44px] !py-2.5 !pr-12 !rounded-xl !shadow-none !text-base sm:!text-sm !text-slate-800 placeholder:!text-slate-500 focus:!border-[#005BAC] focus:!ring-2 focus:!ring-[#005BAC]/20 motion-reduce:!transition-none',
-                                    form.errors.password
-                                        ? '!border-rose-600 focus:!border-rose-600 focus:!ring-rose-200'
-                                        : '!border-[#75859c] hover:!border-slate-600',
-                                ].join(' ')"
-                                :inputProps="{
-                                    autocomplete: 'current-password',
-                                    'aria-expanded': null,
-                                    'aria-haspopup': null,
-                                    'aria-invalid': Boolean(form.errors.password),
-                                    'aria-describedby': form.errors.password ? 'password-error' : undefined,
-                                }"
-                                placeholder="Masukkan kata sandi"
-                                required
-                                @update:modelValue="form.clearErrors('password')"
-                            >
-                                <template #maskicon="{ toggleCallback }">
-                                    <button
-                                        ref="passwordToggleRef"
-                                        type="button"
-                                        class="absolute right-0.5 top-1/2 -translate-y-1/2 z-10 size-11 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[#005BAC] cursor-pointer"
-                                        aria-label="Sembunyikan kata sandi"
-                                        aria-pressed="true"
-                                        @click="handlePasswordToggle(toggleCallback)"
+                            <div>
+                                <label for="password" class="block text-xs font-semibold text-slate-700 mb-1.5">
+                                    Kata Sandi
+                                </label>
+                                <div
+                                    class="w-full"
+                                    @keydown="handleCapsLock"
+                                    @keyup="handleCapsLock"
+                                    @focusout="capsLockOn = false"
+                                >
+                                    <Password
+                                        inputId="password"
+                                        v-model="form.password"
+                                        :feedback="false"
+                                        promptLabel="Masukkan kata sandi"
+                                        toggleMask
+                                        :disabled="form.processing"
+                                        :invalid="Boolean(passwordFieldError || hasCredentialMismatchError)"
+                                        class="w-full"
+                                        :inputClass="[
+                                            '!w-full !min-h-[44px] !px-3.5 !pr-12 !py-2.5 !rounded-xl !shadow-none !text-base sm:!text-sm !text-slate-800 placeholder:!text-slate-500 !bg-white disabled:!bg-slate-50 disabled:!text-slate-500 focus:!border-[#005BAC] focus:!ring-2 focus:!ring-[#005BAC]/20 motion-reduce:!transition-none',
+                                            (passwordFieldError || hasCredentialMismatchError)
+                                                ? '!border-rose-600 focus:!border-rose-600 focus:!ring-rose-200'
+                                                : '!border-[#75859c] hover:!border-slate-600',
+                                        ].join(' ')"
+                                        :inputProps="{
+                                            name: 'password',
+                                            autocomplete: 'current-password',
+                                            enterkeyhint: 'done',
+                                            'aria-expanded': null,
+                                            'aria-haspopup': null,
+                                            'aria-invalid': (passwordFieldError || hasCredentialMismatchError) ? 'true' : 'false',
+                                            'aria-describedby': passwordDescribedBy,
+                                        }"
+                                        placeholder="Masukkan kata sandi"
+                                        required
+                                        @update:modelValue="clearPasswordError"
                                     >
-                                        <i class="pi pi-eye-slash text-sm" aria-hidden="true" />
-                                    </button>
-                                </template>
-                                <template #unmaskicon="{ toggleCallback }">
-                                    <button
-                                        ref="passwordToggleRef"
-                                        type="button"
-                                        class="absolute right-0.5 top-1/2 -translate-y-1/2 z-10 size-11 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[#005BAC] cursor-pointer"
-                                        aria-label="Tampilkan kata sandi"
-                                        aria-pressed="false"
-                                        @click="handlePasswordToggle(toggleCallback)"
-                                    >
-                                        <i class="pi pi-eye text-sm" aria-hidden="true" />
-                                    </button>
-                                </template>
-                            </Password>
-                        </div>
-                        <p v-if="form.errors.password" id="password-error" role="alert" class="text-rose-700 text-xs mt-1.5 flex items-center gap-1.5">
-                            <i class="pi pi-exclamation-circle text-xs shrink-0" aria-hidden="true" />
-                            <span>{{ form.errors.password }}</span>
-                        </p>
-                    </div>
+                                        <template #maskicon="{ toggleCallback }">
+                                            <button
+                                                ref="passwordToggleRef"
+                                                type="button"
+                                                :disabled="form.processing"
+                                                class="absolute right-0.5 top-1/2 -translate-y-1/2 z-10 size-11 flex items-center justify-center rounded-lg text-slate-600 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[#005BAC] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                                                aria-label="Sembunyikan kata sandi"
+                                                aria-pressed="true"
+                                                @click="handlePasswordToggle(toggleCallback)"
+                                            >
+                                                <i class="pi pi-eye-slash text-sm" aria-hidden="true" />
+                                            </button>
+                                        </template>
+                                        <template #unmaskicon="{ toggleCallback }">
+                                            <button
+                                                ref="passwordToggleRef"
+                                                type="button"
+                                                :disabled="form.processing"
+                                                class="absolute right-0.5 top-1/2 -translate-y-1/2 z-10 size-11 flex items-center justify-center rounded-lg text-slate-600 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[#005BAC] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                                                aria-label="Tampilkan kata sandi"
+                                                aria-pressed="false"
+                                                @click="handlePasswordToggle(toggleCallback)"
+                                            >
+                                                <i class="pi pi-eye text-sm" aria-hidden="true" />
+                                            </button>
+                                        </template>
+                                    </Password>
+                                </div>
+                                <p v-if="capsLockOn" id="caps-lock-hint" role="status" class="text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 text-xs mt-1.5 flex items-center gap-1.5">
+                                    <i class="pi pi-exclamation-triangle text-xs shrink-0" aria-hidden="true" />
+                                    <span>Caps Lock sedang aktif.</span>
+                                </p>
+                                <p
+                                    v-if="passwordFieldError"
+                                    :key="`password-err-${clientErrorAttempt}`"
+                                    id="password-field-error"
+                                    class="text-rose-700 text-xs mt-1.5 flex items-center gap-1.5 animate-error-in"
+                                >
+                                    <i class="pi pi-exclamation-circle text-xs shrink-0" aria-hidden="true" />
+                                    <span>{{ passwordFieldError }}</span>
+                                </p>
+                            </div>
 
-                    <!-- Row 3: Remember Me & Forgot Password -->
-                    <div class="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 pt-0.5">
-                        <label class="inline-flex items-center gap-1.5 min-h-[44px] py-2 cursor-pointer select-none">
-                            <Checkbox v-model="form.remember" :binary="true" inputId="remember" class="login-checkbox" />
-                            <span class="text-xs text-slate-600 font-medium">Ingat sesi saya di perangkat ini</span>
-                        </label>
-                        <button
-                            ref="forgotPasswordBtnRef"
-                            type="button"
-                            class="inline-flex items-center min-h-[44px] px-0 text-xs font-semibold text-[#005BAC] hover:text-[#004b8e] hover:underline rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#005BAC] cursor-pointer whitespace-nowrap"
-                            @click="openHelpModal"
-                        >
-                            Lupa kata sandi?
-                        </button>
-                    </div>
+                            <div class="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 pt-0.5">
+                                <label class="inline-flex items-center gap-2 min-h-[44px] py-2 cursor-pointer select-none">
+                                    <Checkbox v-model="form.remember" :binary="true" inputId="remember" :disabled="form.processing" class="login-checkbox" />
+                                    <span class="text-xs text-slate-700 font-medium">Ingat saya</span>
+                                </label>
+                                <button
+                                    ref="forgotPasswordBtnRef"
+                                    type="button"
+                                    :disabled="form.processing"
+                                    class="inline-flex items-center min-h-[44px] px-1 text-xs font-semibold text-[#005BAC] hover:text-[#004b8e] hover:underline rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#005BAC] cursor-pointer whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+                                    @click="showHelpModal = true"
+                                >
+                                    Lupa kata sandi?
+                                </button>
+                            </div>
 
-                    <!-- Submit Button -->
-                    <div class="pt-1">
-                        <button
-                            type="submit"
-                            :disabled="form.processing"
-                            :class="[
-                                'w-full min-h-[44px] py-2.5 px-4 rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 shadow-sm transition-all motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003e75]',
-                                form.processing
-                                    ? 'bg-[#003e75] cursor-not-allowed'
-                                    : 'bg-[#005BAC] hover:bg-[#004b8e] active:scale-[0.99] motion-reduce:active:scale-100 cursor-pointer',
-                            ]"
-                        >
-                            <i v-if="form.processing" class="pi pi-spin pi-spinner text-sm" aria-hidden="true" />
-                            <i v-else class="pi pi-sign-in text-sm" aria-hidden="true" />
-                            <span>{{ form.processing ? 'Memverifikasi Akun...' : 'Masuk ke Portal E-SDM' }}</span>
-                        </button>
-                    </div>
-                </form>
-
-                <!-- Helper Card: Login Instructions for KFPB Employees -->
-                <div class="mt-5 p-3.5 sm:p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 space-y-1.5">
-                    <div class="flex items-center gap-2 font-bold text-slate-800">
-                        <i class="pi pi-info-circle text-[#005BAC]" aria-hidden="true" />
-                        <span>Petunjuk Masuk Akun:</span>
-                    </div>
-                    <ul class="space-y-1 text-[11px] leading-relaxed text-slate-600 pl-5 list-disc">
-                        <li>
-                            Kata sandi akun tetap sama dengan sistem E-SDM sebelumnya (telah dimigrasikan).
-                        </li>
-                    </ul>
+                            <div class="pt-1">
+                                <button
+                                    type="submit"
+                                    :disabled="form.processing"
+                                    :class="[
+                                        'w-full min-h-[44px] py-2.5 px-4 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 shadow-xs transition-colors motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003e75]',
+                                        form.processing
+                                            ? 'bg-[#003e75] cursor-not-allowed'
+                                            : 'bg-[#005BAC] hover:bg-[#004b8e] active:scale-[0.99] motion-reduce:active:scale-100 cursor-pointer',
+                                    ]"
+                                >
+                                    <i v-if="form.processing" class="pi pi-spin motion-reduce:animate-none pi-spinner text-sm" aria-hidden="true" />
+                                    <span>{{ form.processing ? 'Memverifikasi...' : 'Masuk' }}</span>
+                                </button>
+                            </div>
+                        </form>
+                    </main>
                 </div>
-
-                </main>
-
-                <!-- Clean Footer (Always visible & responsive on mobile) -->
-                <footer class="pt-4 pb-2 sm:pt-5 border-t border-slate-300/60 lg:border-slate-200/60 text-center text-xs text-slate-600 shrink-0 mt-5">
-                    <div class="flex items-center justify-center gap-1.5 text-slate-700 font-medium mb-1">
-                        <span>PT Kimia Farma Plant Banjaran</span>
-                    </div>
-                    <p class="text-[11px] text-slate-600 leading-normal">
-                        © 2026 E-SDM KFPB • Seluruh hak cipta dilindungi.
-                    </p>
-                </footer>
             </div>
+
+            <footer class="relative z-10 py-4 px-4 text-center text-xs text-slate-600 shrink-0 lg:absolute lg:inset-x-0 lg:bottom-0 lg:py-5">
+                © 2026 PT Kimia Farma Plant Banjaran
+            </footer>
         </div>
 
-        <!-- =============================================================== -->
-        <!-- MODAL: Bantuan Reset / Lupa Kata Sandi                           -->
-        <!-- =============================================================== -->
-        <div
-            v-if="showHelpModal"
-            class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto transition-opacity motion-reduce:transition-none"
-            @click.self="closeHelpModal"
+        <Dialog
+            v-model:visible="showHelpModal"
+            modal
+            dismissableMask
+            :draggable="false"
+            header="Bantuan Lupa Kata Sandi"
+            :style="{ width: '440px', maxWidth: '94vw' }"
+            :closeButtonProps="{ 'aria-label': 'Tutup dialog bantuan kata sandi', severity: 'secondary', text: true }"
+            :pt="{
+                pcCloseButton: {
+                    root: {
+                        class: '!w-11 !h-11 !min-w-[44px] !min-h-[44px] !text-slate-600 hover:!text-slate-900 hover:!bg-slate-100 !rounded-xl focus-visible:!outline-2 focus-visible:!outline-offset-2 focus-visible:!outline-[#005BAC]',
+                        'aria-label': 'Tutup dialog bantuan kata sandi',
+                    },
+                },
+            }"
+            @after-hide="handleHelpDialogHide"
         >
-            <div
-                ref="helpModalRef"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="help-modal-title"
-                class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full my-auto p-6 transform transition-all motion-reduce:transition-none"
-            >
-                <div class="flex items-start justify-between gap-3 pb-3 border-b border-slate-200">
-                    <div class="flex items-center gap-3">
-                        <div class="size-10 rounded-xl bg-amber-50 border border-amber-200/80 text-amber-700 flex items-center justify-center shrink-0">
-                            <i class="pi pi-key text-lg" aria-hidden="true" />
-                        </div>
-                        <div>
-                            <h2 id="help-modal-title" class="text-sm font-bold text-slate-800">Bantuan Lupa Kata Sandi</h2>
-                            <p class="text-[11px] text-slate-600">Layanan Pemulihan Akun E-SDM KFPB</p>
-                        </div>
+            <div class="space-y-3.5 text-xs text-slate-700 leading-relaxed pt-1">
+                <p>
+                    Pemulihan kata sandi dilakukan melalui verifikasi unit kerja untuk menjaga keamanan data kepegawaian:
+                </p>
+
+                <div class="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5">
+                    <div class="flex items-start gap-2.5">
+                        <span class="size-5 rounded-full bg-blue-100 text-[#005BAC] font-bold flex items-center justify-center shrink-0 text-[11px]">1</span>
+                        <span>Datang langsung ke <strong>Divisi SDM &amp; Organisasi</strong> (Gedung Manajemen Lt. 2 Plant Banjaran).</span>
                     </div>
-                    <button
-                        ref="helpModalCloseBtnRef"
-                        type="button"
-                        aria-label="Tutup dialog bantuan kata sandi"
-                        class="size-11 -mt-1.5 -mr-1.5 flex items-center justify-center rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#005BAC] transition-colors motion-reduce:transition-none cursor-pointer shrink-0"
-                        @click="closeHelpModal"
-                    >
-                        <i class="pi pi-times text-sm" aria-hidden="true" />
-                    </button>
-                </div>
-
-                <div class="py-4 text-xs text-slate-600 space-y-3 leading-relaxed">
-                    <p>
-                        Untuk menjaga keamanan data perusahaan dan privasi slip gaji, pemulihan kata sandi pegawai dilakukan melalui verifikasi unit kerja:
-                    </p>
-
-                    <div class="p-3 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
-                        <div class="flex items-start gap-2">
-                            <span class="size-5 rounded-full bg-[#005BAC]/10 text-[#005BAC] font-bold flex items-center justify-center shrink-0 text-[10px]">1</span>
-                            <span>Datang langsung ke <strong>Divisi SDM & Organisasi</strong> (Gedung Manajemen Lt. 2 Plant Banjaran).</span>
-                        </div>
-                        <div class="flex items-start gap-2">
-                            <span class="size-5 rounded-full bg-[#005BAC]/10 text-[#005BAC] font-bold flex items-center justify-center shrink-0 text-[10px]">2</span>
-                            <span>Atau hubungi Helpdesk Internal melalui WhatsApp Hotline SDM KFPB dengan menyertakan <strong>NIP, Nama Lengkap, dan Unit Kerja</strong>.</span>
-                        </div>
-                    </div>
-
-                    <div class="p-3 rounded-xl bg-blue-50/70 border border-blue-100 text-blue-900 flex items-center gap-3">
-                        <i class="pi pi-phone text-lg text-[#005BAC] shrink-0" aria-hidden="true" />
-                        <div class="min-w-0 flex-1">
-                            <div class="font-bold text-[11px]">Helpdesk SDM & IT KFPB:</div>
-                            <div class="text-[11px] text-blue-800">Ext: 214 / 215 (Jam Kerja Operasional)</div>
-                        </div>
+                    <div class="flex items-start gap-2.5">
+                        <span class="size-5 rounded-full bg-blue-100 text-[#005BAC] font-bold flex items-center justify-center shrink-0 text-[11px]">2</span>
+                        <span>Hubungi Helpdesk Internal SDM KFPB dengan menyertakan <strong>NIP, Nama Lengkap, dan Unit Kerja</strong>.</span>
                     </div>
                 </div>
 
-                <div class="pt-3 border-t border-slate-200 flex justify-end">
-                    <button
-                        type="button"
-                        class="min-h-[44px] px-5 py-2.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#005BAC] transition-colors motion-reduce:transition-none cursor-pointer"
-                        @click="closeHelpModal"
-                    >
-                        Tutup
-                    </button>
+                <div class="bg-blue-50 border border-blue-200/80 rounded-xl p-3 text-slate-800 flex items-center gap-3">
+                    <i class="pi pi-phone text-base text-[#005BAC] shrink-0" aria-hidden="true" />
+                    <div class="min-w-0 flex-1">
+                        <div class="font-bold text-xs text-slate-900">Helpdesk SDM &amp; IT KFPB</div>
+                        <div class="text-xs text-slate-700">Ext: 214 / 215 (Jam Kerja Operasional)</div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 flex items-start gap-2.5">
+                    <i class="pi pi-info-circle text-[#005BAC] text-sm mt-0.5 shrink-0" aria-hidden="true" />
+                    <span>
+                        <strong>Catatan akun lama:</strong> Kata sandi tetap sama dengan sistem E-SDM sebelumnya (telah dimigrasikan).
+                    </span>
                 </div>
             </div>
-        </div>
 
+            <template #footer>
+                <button
+                    type="button"
+                    class="min-h-[44px] px-5 py-2.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#005BAC] transition-colors motion-reduce:transition-none cursor-pointer"
+                    @click="showHelpModal = false"
+                >
+                    Tutup
+                </button>
+            </template>
+        </Dialog>
     </div>
 </template>
 
@@ -545,10 +524,25 @@ const submit = () => {
     animation: shake 0.4s ease-in-out;
 }
 
+@keyframes error-in {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-error-in {
+    animation: error-in 0.18s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
-    .animate-shake {
+    .animate-shake,
+    .animate-error-in {
         animation: none;
     }
 }
 </style>
-
