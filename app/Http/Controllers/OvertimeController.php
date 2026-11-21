@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreOvertimeRequest;
 use App\Models\Attendance;
 use App\Models\Employee;
+use App\Models\OrganizationStructure;
 use App\Models\OvertimeParticipant;
 use App\Models\OvertimeRequest;
+use App\Services\OvertimeCalculationService;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -891,5 +893,415 @@ class OvertimeController extends Controller
             'supervisor_2'       => $ot->supervisor_title_2,
             'supervisor_3'       => $ot->supervisor_title_3,
         ];
+    }
+
+    /**
+     * Halaman Laporan Lengkap Lembur Pegawai Mandiri
+     * (replikasi fitur & rumus hitung eSDM native: adminlembur_detail + lap_lemburrekapbulancsv).
+     */
+    public function employeeReport(Request $request, OvertimeCalculationService $calculator): Response
+    {
+        $user       = Auth::user();
+        $isAdmin    = $user->hasAdminAccess();
+        $currentNip = $user->employee_nip;
+        $employee   = $currentNip
+            ? Employee::where('nip', $currentNip)->with(['division', 'position'])->first()
+            : null;
+
+        // Ambil daftar NIP bawahan langsung jika user adalah atasan
+        $subordinateNips = [];
+        if ($currentNip) {
+            try {
+                $node = OrganizationStructure::findByNip($currentNip);
+                $subordinateNips = $node ? $node->getSubordinateNips() : [];
+            } catch (\Throwable $e) {
+                $subordinateNips = [];
+            }
+        }
+
+        $isSupervisor = $user->isSupervisor() || count($subordinateNips) > 0 || $isAdmin;
+
+        // Daftar pilihan pegawai sesuai otorisasi (diri sendiri, bawahan, atau seluruh pegawai untuk Admin)
+        $employeeOptions = [];
+        if ($isAdmin) {
+            $allEmployees = Employee::orderBy('full_name')->get(['nip', 'full_name']);
+            foreach ($allEmployees as $emp) {
+                $employeeOptions[] = [
+                    'nip'  => $emp->nip,
+                    'name' => "{$emp->nip} - {$emp->full_name}",
+                ];
+            }
+        } else {
+            if ($currentNip) {
+                $employeeOptions[] = [
+                    'nip'  => $currentNip,
+                    'name' => ($employee?->full_name ?? $currentNip) . ' (Diri Sendiri)',
+                ];
+            }
+            if ($isSupervisor && count($subordinateNips) > 0) {
+                $subs = Employee::whereIn('nip', $subordinateNips)
+                    ->orderBy('full_name')
+                    ->get(['nip', 'full_name']);
+                foreach ($subs as $sub) {
+                    $employeeOptions[] = [
+                        'nip'  => $sub->nip,
+                        'name' => "{$sub->nip} - {$sub->full_name}",
+                    ];
+                }
+            }
+        }
+
+        // Validasi otorisasi target NIP (anti-IDOR)
+        $requestedNip = trim((string) $request->input('nip', ''));
+        if ($requestedNip !== '') {
+            if ($isAdmin || $requestedNip === $currentNip || in_array($requestedNip, $subordinateNips, true)) {
+                $targetNip = $requestedNip;
+            } else {
+                $targetNip = $currentNip;
+            }
+        } else {
+            if ($currentNip && Employee::where('nip', $currentNip)->exists()) {
+                $targetNip = $currentNip;
+            } elseif ($isAdmin && ! empty($employeeOptions)) {
+                $targetNip = $employeeOptions[0]['nip'];
+            } else {
+                $targetNip = $currentNip;
+            }
+        }
+
+        $targetEmployee = $targetNip
+            ? Employee::where('nip', $targetNip)
+                ->with(['division', 'subDivision', 'position', 'salaryStructure'])
+                ->first()
+            : null;
+
+        // Filter tanggal & tab mode
+        $defaultStart = now('Asia/Jakarta')->startOfMonth()->toDateString();
+        $defaultEnd   = now('Asia/Jakarta')->endOfMonth()->toDateString();
+        $startDate    = $this->parseDateFilter($request->input('start_date', $request->input('awal')), $defaultStart);
+        $endDate      = $this->parseDateFilter($request->input('end_date', $request->input('akhir')), $defaultEnd);
+
+        if ($endDate < $startDate) {
+            [$startDate, $endDate] = [$endDate, $startDate];
+        }
+
+        $requestedMode = (string) $request->input('mode', 'all');
+        $mode = in_array($requestedMode, ['all', 'verified', 'wait_verif', 'wait_real'], true)
+            ? $requestedMode
+            : 'all';
+
+        $rates            = $calculator->resolveEmployeeOvertimeRates($targetEmployee?->salaryStructure);
+        $positionLegacyId = $targetEmployee?->position?->legacy_id ?? $targetEmployee?->position_id;
+        $isAtasan         = $calculator->isAtasanPosition($positionLegacyId ? (int) $positionLegacyId : null);
+
+        // Query SPL yang diikuti target NIP beserta data absensi pada rentang yang sama (Zero N+1)
+        $participants = $targetNip
+            ? OvertimeParticipant::where('employee_nip', $targetNip)
+                ->whereHas('overtimeRequest', fn ($q) => $q->whereBetween('start_date', [$startDate, $endDate]))
+                ->with(['overtimeRequest.applicant'])
+                ->get()
+            : collect();
+
+        $attendancesByDate = $targetNip
+            ? Attendance::where('employee_nip', $targetNip)
+                ->whereBetween('attendance_date', [$startDate, $endDate])
+                ->with('workShift')
+                ->get()
+                ->keyBy(fn ($a) => $a->attendance_date->format('Y-m-d'))
+            : collect();
+
+        $dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+        $allRows  = [];
+        $matchedAttendanceDates = [];
+
+        foreach ($participants as $participant) {
+            $ot = $participant->overtimeRequest;
+            if (! $ot || ! $ot->start_date) {
+                continue;
+            }
+
+            $dateStr   = $ot->start_date->format('Y-m-d');
+            $dayOfWeek = (int) $ot->start_date->format('w');
+            $att       = $attendancesByDate->get($dateStr);
+            $matchedAttendanceDates[$dateStr] = true;
+
+            $isRejected             = ((int) $ot->approval_status === 2);
+            $isCancelledParticipant = ((int) $ot->approval_status === 1 && ! is_null($ot->end_date) && ! $participant->is_approved);
+            $attMatchesSpl          = $att && $att->is_overtime_verified && (! $att->overtime_request_id || (int) $att->overtime_request_id === (int) $ot->id);
+            $isVerified             = ! $isRejected && ! $isCancelledParticipant && (
+                ((int) $ot->approval_status === 1 && ! is_null($ot->end_date) && $participant->is_approved)
+                || ($attMatchesSpl && $participant->is_approved)
+            );
+
+            $jamIn      = $att?->check_in_time;
+            $jamOut     = $att?->check_out_time;
+            $jamIn2     = $ot->duration;
+            $jamOut2Raw = $participant->duration;
+            $jamOut2ForCalc = $jamOut2Raw ?: ($isVerified ? $jamOut : null);
+
+            $plannedHours = $calculator->calculatePlannedHours($dateStr, $ot->duration, $ot->reason);
+            $realSeconds  = $calculator->calculateRealizationSeconds($dateStr, $jamIn, $jamOut, $jamIn2, $jamOut2Raw);
+            $realMinutes  = (int) round($realSeconds / 60);
+            $realHours    = round($realMinutes / 60, 2);
+            $afterSeconds = $calculator->calculateAfterBreakSeconds($realSeconds);
+
+            $effectiveIn  = $calculator->normalizeTime($jamIn2) ?? $calculator->normalizeTime($jamIn);
+            $effectiveOut = $calculator->normalizeTime($jamOut2Raw) ?? $calculator->normalizeTime($jamOut);
+
+            $verifiedCalc = $calculator->calculateVerifiedOvertime([
+                'is_verified'          => $isVerified,
+                'overtime_type'        => (int) ($ot->overtime_type ?? 1),
+                'work_shift_legacy_id' => $att?->workShift?->legacy_id ?? $att?->work_shift_id,
+                'attendance_date'      => $dateStr,
+                'jam_in'               => $jamIn,
+                'jam_in2'              => $jamIn2,
+                'jam_out2'             => $jamOut2ForCalc,
+                'position_legacy_id'   => $positionLegacyId ? (int) $positionLegacyId : null,
+                'hourly_rate'          => $rates['hourly_rate'],
+                'minute_rate'          => $rates['minute_rate'],
+            ]);
+
+            if ($isVerified) {
+                $statusKey      = 'verified';
+                $statusLabel    = 'Terverifikasi';
+                $statusSeverity = 'success';
+            } elseif ($isRejected) {
+                $statusKey      = 'rejected';
+                $statusLabel    = 'SPL Ditolak';
+                $statusSeverity = 'danger';
+            } elseif ($isCancelledParticipant) {
+                $statusKey      = 'cancelled';
+                $statusLabel    = 'Tidak Jadi';
+                $statusSeverity = 'secondary';
+            } elseif ($effectiveIn !== null && $effectiveOut !== null && $realMinutes > 0) {
+                $statusKey      = 'wait_verif';
+                $statusLabel    = 'Menunggu Verifikasi';
+                $statusSeverity = 'info';
+            } else {
+                $statusKey      = 'wait_real';
+                $statusLabel    = 'Menunggu Realisasi';
+                $statusSeverity = 'warn';
+            }
+
+            $realStartShort = $ot->start_date->format('d/m');
+            $realEndShort   = ($effectiveIn !== null && $effectiveOut !== null && strtotime("2000-01-01 {$effectiveOut}") < strtotime("2000-01-01 {$effectiveIn}"))
+                ? $ot->start_date->copy()->addDay()->format('d/m')
+                : $realStartShort;
+
+            $deltaHours = ($plannedHours > 0 && $realHours > 0)
+                ? round($realHours - $plannedHours, 2)
+                : null;
+
+            $allRows[] = [
+                'id'                    => "spl-{$ot->id}-{$participant->id}",
+                'overtime_request_id'   => $ot->id,
+                'spl_code'              => sprintf('SPL-%05d', $ot->id),
+                'legacy_id'             => $ot->legacy_id,
+                'has_spl'               => true,
+                'date'                  => $dateStr,
+                'formatted_date'        => $ot->start_date->format('d/m/Y'),
+                'day_name'              => $dayNames[$dayOfWeek] ?? '-',
+                'request_date'          => $ot->request_date?->format('d/m/Y') ?? '-',
+                'verified_date'         => $ot->end_date?->format('d/m/Y') ?? '-',
+                'shift_name'            => $att?->workShift?->name ?? 'Non-Shift',
+                'overtime_type'         => (int) ($ot->overtime_type ?? 1),
+                'type_label'            => OvertimeRequest::OVERTIME_TYPES[$ot->overtime_type] ?? 'Lembur',
+                'task_description'      => $participant->task_description ?: '-',
+                'planned_start'         => $this->formatTimeShort($ot->duration),
+                'planned_end'           => $this->formatTimeShort($ot->reason),
+                'planned_hours'         => $plannedHours,
+                'jam_in'                => $this->formatTimeShort($jamIn),
+                'jam_out'               => $this->formatTimeShort($jamOut),
+                'jam_in2'               => $this->formatTimeShort($jamIn2),
+                'jam_out2'              => $this->formatTimeShort($jamOut2Raw),
+                'effective_in'          => $this->formatTimeShort($effectiveIn),
+                'effective_out'         => $this->formatTimeShort($effectiveOut),
+                'real_date_start_short' => $realStartShort,
+                'real_date_end_short'   => $realEndShort,
+                'real_seconds'          => $realSeconds,
+                'real_hours'            => $realHours,
+                'after_break_seconds'   => $afterSeconds,
+                'after_break_hours'     => $isVerified
+                    ? $verifiedCalc['after_break_hours']
+                    : $calculator->calculateAfterBreakHours($realHours, $isAtasan),
+                'delta_hours'           => $deltaHours,
+                'counted_hours'         => $verifiedCalc['counted_hours'],
+                'overtime_amount'       => $verifiedCalc['amount'],
+                'is_verified'           => $isVerified,
+                'status_key'            => $statusKey,
+                'status_label'          => $statusLabel,
+                'status_severity'       => $statusSeverity,
+                'approval_status_label' => OvertimeRequest::APPROVAL_STATUS_LABELS[$ot->approval_status] ?? 'Menunggu',
+            ];
+        }
+
+        // Tangkap rekaman lembur terverifikasi pada attendances yang belum terikat SPL (kompatibel dengan scope native)
+        foreach ($attendancesByDate as $dateStr => $att) {
+            if (! $att->is_overtime_verified || isset($matchedAttendanceDates[$dateStr])) {
+                continue;
+            }
+
+            $dayOfWeek   = (int) $att->attendance_date->format('w');
+            $jamIn       = $att->check_in_time;
+            $jamOut      = $att->check_out_time;
+            $realSeconds = $calculator->calculateRealizationSeconds($dateStr, $jamIn, $jamOut);
+            $realMinutes = (int) round($realSeconds / 60);
+            $realHours   = round($realMinutes / 60, 2);
+            $afterSeconds = $calculator->calculateAfterBreakSeconds($realSeconds);
+
+            $effectiveIn  = $calculator->normalizeTime($jamIn);
+            $effectiveOut = $calculator->normalizeTime($jamOut);
+
+            $verifiedCalc = $calculator->calculateVerifiedOvertime([
+                'is_verified'          => true,
+                'overtime_type'        => 1,
+                'work_shift_legacy_id' => $att->workShift?->legacy_id ?? $att->work_shift_id,
+                'attendance_date'      => $dateStr,
+                'jam_in'               => $jamIn,
+                'jam_in2'              => $jamIn,
+                'jam_out2'             => $jamOut,
+                'position_legacy_id'   => $positionLegacyId ? (int) $positionLegacyId : null,
+                'hourly_rate'          => $rates['hourly_rate'],
+                'minute_rate'          => $rates['minute_rate'],
+            ]);
+
+            $realStartShort = $att->attendance_date->format('d/m');
+            $realEndShort   = ($effectiveIn !== null && $effectiveOut !== null && strtotime("2000-01-01 {$effectiveOut}") < strtotime("2000-01-01 {$effectiveIn}"))
+                ? $att->attendance_date->copy()->addDay()->format('d/m')
+                : $realStartShort;
+
+            $allRows[] = [
+                'id'                    => "att-{$att->id}",
+                'overtime_request_id'   => $att->overtime_request_id,
+                'spl_code'              => 'Tanpa SPL',
+                'legacy_id'             => null,
+                'has_spl'               => false,
+                'date'                  => $dateStr,
+                'formatted_date'        => $att->attendance_date->format('d/m/Y'),
+                'day_name'              => $dayNames[$dayOfWeek] ?? '-',
+                'request_date'          => '-',
+                'verified_date'         => $att->attendance_date->format('d/m/Y'),
+                'shift_name'            => $att->workShift?->name ?? 'Non-Shift',
+                'overtime_type'         => 1,
+                'type_label'            => OvertimeRequest::OVERTIME_TYPES[1] ?? 'Lembur Hari Kerja',
+                'task_description'      => $att->notes ?: '-',
+                'planned_start'         => '-',
+                'planned_end'           => '-',
+                'planned_hours'         => 0.0,
+                'jam_in'                => $this->formatTimeShort($jamIn),
+                'jam_out'               => $this->formatTimeShort($jamOut),
+                'jam_in2'               => $this->formatTimeShort($jamIn),
+                'jam_out2'              => $this->formatTimeShort($jamOut),
+                'effective_in'          => $this->formatTimeShort($effectiveIn),
+                'effective_out'         => $this->formatTimeShort($effectiveOut),
+                'real_date_start_short' => $realStartShort,
+                'real_date_end_short'   => $realEndShort,
+                'real_seconds'          => $realSeconds,
+                'real_hours'            => $realHours,
+                'after_break_seconds'   => $afterSeconds,
+                'after_break_hours'     => $verifiedCalc['after_break_hours'],
+                'delta_hours'           => null,
+                'counted_hours'         => $verifiedCalc['counted_hours'],
+                'overtime_amount'       => $verifiedCalc['amount'],
+                'is_verified'           => true,
+                'status_key'            => 'verified',
+                'status_label'          => 'Terverifikasi',
+                'status_severity'       => 'success',
+                'approval_status_label' => 'Disetujui',
+            ];
+        }
+
+        // Urutkan terbaru terlebih dahulu sesuai adminlembur_detail
+        usort($allRows, function ($a, $b) {
+            $dateCmp = strcmp($b['date'], $a['date']);
+
+            return $dateCmp !== 0 ? $dateCmp : strcmp($b['id'], $a['id']);
+        });
+
+        $tabCounts = [
+            'all'        => count($allRows),
+            'verified'   => count(array_filter($allRows, fn ($r) => $r['status_key'] === 'verified')),
+            'wait_verif' => count(array_filter($allRows, fn ($r) => $r['status_key'] === 'wait_verif')),
+            'wait_real'  => count(array_filter($allRows, fn ($r) => $r['status_key'] === 'wait_real')),
+        ];
+
+        $filteredRows = $mode === 'all'
+            ? $allRows
+            : array_values(array_filter($allRows, fn ($r) => $r['status_key'] === $mode));
+
+        $plannedRows = array_filter($allRows, fn ($r) => $r['has_spl'] && $r['planned_hours'] > 0);
+        $totalPlannedHours = round(array_sum(array_column($plannedRows, 'planned_hours')), 2);
+        $totalRealSeconds  = array_sum(array_column($filteredRows, 'real_seconds'));
+        $totalAfterSeconds = array_sum(array_column($filteredRows, 'after_break_seconds'));
+        $gt4Count          = count(array_filter($filteredRows, fn ($r) => $r['real_seconds'] > 14400));
+        $verifiedSubset    = array_filter($filteredRows, fn ($r) => $r['is_verified']);
+
+        $summary = [
+            'total_planned_hours'   => $totalPlannedHours,
+            'planned_count'         => count($plannedRows),
+            'total_real_hours'      => round($totalRealSeconds / 3600, 2),
+            'real_count'            => count($filteredRows),
+            'total_after_hours'     => round($totalAfterSeconds / 3600, 2),
+            'after_gt4_count'       => $gt4Count,
+            'total_counted_hours'   => round(array_sum(array_column($verifiedSubset, 'counted_hours')), 2),
+            'verified_count'        => count($verifiedSubset),
+            'total_overtime_amount' => round(array_sum(array_column($verifiedSubset, 'overtime_amount')), 0),
+            'has_salary_rate'       => $rates['has_rate'],
+        ];
+
+        return Inertia::render('Employee/Overtime/OvertimeReport', [
+            'pageTitle'       => 'Laporan Lengkap Lembur',
+            'records'         => array_values($filteredRows),
+            'targetEmployee'  => [
+                'nip'          => $targetEmployee?->nip ?? $targetNip ?? '-',
+                'name'         => $targetEmployee?->full_name ?? '-',
+                'division'     => $targetEmployee?->division?->name ?? 'Plant Banjaran',
+                'sub_division' => $targetEmployee?->subDivision?->name ?? '-',
+                'position'     => $targetEmployee?->position?->name ?? '-',
+            ],
+            'employeeOptions' => $employeeOptions,
+            'isSupervisor'    => $isSupervisor,
+            'isAdmin'         => $isAdmin,
+            'isAtasan'        => $isAtasan,
+            'filters'         => [
+                'nip'        => $targetNip,
+                'start_date' => $startDate,
+                'end_date'   => $endDate,
+                'mode'       => $mode,
+            ],
+            'tabCounts'       => $tabCounts,
+            'summary'         => $summary,
+            'overtimeTypes'   => OvertimeRequest::OVERTIME_TYPES,
+        ]);
+    }
+
+    private function parseDateFilter(?string $value, string $fallback): string
+    {
+        $trimmed = trim((string) $value);
+        if ($trimmed === '' || preg_match('/^\d{4}-\d{2}-\d{2}$/', $trimmed) !== 1) {
+            return $fallback;
+        }
+
+        try {
+            $dt = Carbon::createFromFormat('Y-m-d', $trimmed);
+
+            return ($dt && $dt->format('Y-m-d') === $trimmed) ? $trimmed : $fallback;
+        } catch (\Throwable $e) {
+            return $fallback;
+        }
+    }
+
+    private function formatTimeShort(?string $time): string
+    {
+        if ($time === null) {
+            return '-';
+        }
+
+        $trimmed = trim($time);
+        if ($trimmed === '' || in_array($trimmed, ['00:00', '00:00:00', '00:00:01'], true) || strlen($trimmed) < 5) {
+            return '-';
+        }
+
+        return substr($trimmed, 0, 5);
     }
 }

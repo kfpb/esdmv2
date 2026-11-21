@@ -91,6 +91,7 @@ Route::middleware('auth')->group(function () {
     Route::prefix('lembur')->name('lembur.')->group(function () {
         Route::get('/ajukan', [OvertimeController::class, 'create'])->name('create');
         Route::post('/simpan', [OvertimeController::class, 'store'])->name('store');
+        Route::get('/laporan', [OvertimeController::class, 'employeeReport'])->name('laporan');
         Route::get('/persetujuan', [OvertimeController::class, 'approvalIndex'])->name('approvals');
         Route::post('/persetujuan-massal', [OvertimeController::class, 'processBatchApproval'])->name('approval.batch');
         Route::post('/{id}/approval', [OvertimeController::class, 'processApproval'])->name('approval.process')->where('id', '[0-9]+');
