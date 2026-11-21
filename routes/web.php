@@ -11,7 +11,7 @@ use App\Http\Controllers\MasterData\ReligionController;
 use App\Http\Controllers\MasterData\WorkShiftController;
 use App\Http\Controllers\MasterData\DocumentController;
 use App\Http\Controllers\MasterData\EmployeeStatusController;
-use App\Http\Controllers\MasterData\FunctionalPositionController;
+use App\Http\Controllers\MasterData\EchelonController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -113,7 +113,7 @@ Route::middleware('auth')->group(function () {
 
             Route::resource('employee_status', EmployeeStatusController::class)->except(['create', 'edit', 'show']);
             
-            Route::resource('functional_position', FunctionalPositionController::class)->except(['create', 'edit', 'show']);
+            Route::resource('echelon', EchelonController::class)->except(['create', 'edit', 'show']);
         });
     });
 });
